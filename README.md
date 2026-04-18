@@ -9,7 +9,7 @@
 ![Status](https://img.shields.io/badge/Status-Internal%20Use%20Only-orange?style=for-the-badge)
 
 **سیستم داخلی مدیریت نگهداری پیشگیرانه تجهیزات**  
-توسعه‌یافته برای شرکت **گلا دری** — آمل، ایران
+توسعه‌یافته برای شرکت **گلا ** — آمل، ایران
 
 > ⚠️ This is a **private internal tool** developed exclusively for Gela Dairy.  
 > Not open source. All rights reserved.
