@@ -1,4 +1,4 @@
-# 🥛 Dairy PM — Preventive Maintenance System
+# 🥛 Dairy PM — سیستم مدیریت نگهداری پیشگیرانه
 
 <div align="center">
 
@@ -6,35 +6,44 @@
 ![CustomTkinter](https://img.shields.io/badge/CustomTkinter-GUI-blue?style=for-the-badge)
 ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-ORM-red?style=for-the-badge)
 ![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Internal%20Use%20Only-orange?style=for-the-badge)
 
-**A desktop application for managing preventive maintenance in dairy production facilities.**  
-Built with Python, CustomTkinter, SQLAlchemy, and SQLite.
+**سیستم داخلی مدیریت نگهداری پیشگیرانه تجهیزات**  
+توسعه‌یافته برای شرکت **گلا دری** — آمل، ایران
+
+> ⚠️ This is a **private internal tool** developed exclusively for Gela Dairy.  
+> Not open source. All rights reserved.
 
 </div>
 
 ---
 
-## 📋 Table of Contents
+## 📋 فهرست مطالب / Table of Contents
 
 - [Overview](#-overview)
 - [Features](#-features)
 - [Project Structure](#-project-structure)
-- [Installation](#-installation)
-- [Usage](#-usage)
+- [Installation](#-installation-internal)
+- [Default Login](#-default-login)
 - [Roles & Permissions](#-roles--permissions)
 - [Roadmap](#-roadmap)
 - [Tech Stack](#-tech-stack)
-- [Contributing](#-contributing)
+- [Developer](#-developer)
 - [License](#-license)
 
 ---
 
 ## 🔍 Overview
 
-**Dairy PM** is a Windows desktop application designed for maintenance teams in dairy production plants. It provides a full suite of tools to manage equipment, schedule preventive maintenance (PM), assign technicians, and track work orders — all in a Persian (Farsi) UI with Jalali calendar support.
+**Dairy PM** is a Windows desktop application built exclusively for the maintenance department of **Gela Dairy (گلا دری)**, located in Amol, Iran.
 
-The system follows a clean **three-layer architecture**: Model → Repository → View, making it easy to maintain and extend.
+It provides a complete toolset for:
+- Registering and tracking production equipment
+- Scheduling and managing preventive maintenance (PM) plans
+- Assigning tasks to technicians and tracking work orders
+- Approving completed maintenance work through a supervisor workflow
+
+The UI is fully in **Persian (Farsi)** with **Jalali (Shamsi) calendar** support, designed for the company's maintenance team.
 
 ---
 
@@ -44,20 +53,20 @@ The system follows a clean **three-layer architecture**: Model → Repository �
 
 | Module | Description |
 |---|---|
-| 🔐 Authentication | Login system with role-based access control |
-| 👥 User Management | Full CRUD, role assignment, password management |
+| 🔐 Authentication | Secure login with role-based access control |
+| 👥 User Management | Full CRUD — add, edit, deactivate users and assign roles |
 | 🔧 Equipment Management | Equipment registry with status tracking and Jalali date support |
-| 📅 PM Scheduling | Define periodic maintenance plans per equipment |
+| 📅 PM Scheduling | Define periodic maintenance plans per equipment with checklists |
 | 📝 Work Orders | Create, assign, track, approve or reject maintenance tasks |
 
-### 🚧 In Progress / Planned
+### 🚧 Planned
 
 | Module | Status |
 |---|---|
-| 🔩 Spare Parts Management | 🟡 Planned |
-| 📊 Reports & Dashboard | 🟡 Planned |
-| 🌐 LAN Multi-User (Client-Server) | 🔴 Critical |
-| 📦 EXE Installer | 🟡 Planned |
+| 🔩 Spare Parts Management | 🟡 Planned — Phase 7 |
+| 📊 Reports & Dashboard | 🟡 Planned — Phase 8 |
+| 🌐 LAN Multi-User Support | 🔴 Critical — Phase 9 |
+| 📦 EXE Installer | 🟡 Planned — Phase 10 |
 
 ---
 
@@ -68,7 +77,7 @@ dairy_pm_app/
 ├── auth/
 │   └── auth_manager.py          # Authentication logic
 ├── database/
-│   ├── db.py                    # SQLAlchemy session setup
+│   ├── db.py                    # SQLAlchemy session & engine
 │   ├── models.py                # User, Equipment, PMSchedule models
 │   ├── work_order.py            # WorkOrder model & enums
 │   ├── equipment_repository.py
@@ -91,7 +100,9 @@ dairy_pm_app/
 
 ---
 
-## ⚙️ Installation
+## ⚙️ Installation (Internal)
+
+> For IT / setup on a new office PC only.
 
 ### Prerequisites
 
@@ -105,10 +116,9 @@ dairy_pm_app/
 git clone https://github.com/MehrshadZiari79/Preventive-maintenance-system.git
 cd Preventive-maintenance-system
 
-# 2. Create a virtual environment (recommended)
+# 2. Create a virtual environment
 python -m venv venv
-venv\Scripts\activate      # Windows
-# source venv/bin/activate # Linux/Mac
+venv\Scripts\activate
 
 # 3. Install dependencies
 pip install -r requirements.txt
@@ -117,28 +127,28 @@ pip install -r requirements.txt
 python main.py
 ```
 
+The database (`pm_database.db`) is created automatically on first run.
+
 ---
 
-## 🚀 Usage
-
-On first launch, the database is automatically created and seeded with a default admin account:
+## 🔑 Default Login
 
 | Field | Value |
 |---|---|
 | Username | `admin` |
 | Password | `admin123` |
 
-> ⚠️ **Change the default password immediately after first login.**
+> ⚠️ **Change the default password immediately after first setup.**
 
 ---
 
 ## 👤 Roles & Permissions
 
-| Role | Permissions |
-|---|---|
-| **Admin** | Full access — manage users, equipment, PM schedules, work orders |
-| **Manager** | Approve/reject work orders, view all data |
-| **Technician** | View assigned work orders, update status, log work done |
+| Role | Persian | Permissions |
+|---|---|---|
+| **Admin** | مدیر سیستم | Full access — manage all data, users, and settings |
+| **Manager** | سرپرست | Approve/reject work orders, view all reports |
+| **Technician** | تکنسین | View assigned tasks, update work order status |
 
 ---
 
@@ -166,30 +176,25 @@ Phase 10   🟡  EXE Installer (PyInstaller + Inno Setup)
 | Language | Python 3.10+ |
 | GUI | CustomTkinter + Tkinter |
 | ORM | SQLAlchemy |
-| Database | SQLite (local) → PostgreSQL (planned) |
+| Database | SQLite (current) → PostgreSQL (planned for LAN) |
 | Calendar | tkcalendar (Jalali support) |
 | Packaging | PyInstaller + Inno Setup (planned) |
 
 ---
 
-## 🤝 Contributing
+## 👨‍💻 Developer
 
-Contributions are welcome! Please follow these steps:
+**Mehrshad Ziari**  
+Computer Engineer — Gela Dairy, Amol, Iran
 
-1. Fork the repository
-2. Create your feature branch: `git checkout -b feat/your-feature`
-3. Commit your changes: `git commit -m "feat: add your feature"`
-4. Push to the branch: `git push origin feat/your-feature`
-5. Open a Pull Request
+> For bug reports or feature requests, contact the developer directly through internal company channels.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+**Proprietary — All Rights Reserved**
 
----
-
-<div align="center">
-Made with ❤️ for dairy maintenance teams
-</div>
+Copyright © 2025 Gela Dairy — Amol, Iran.  
+This software is developed exclusively for internal use at Gela Dairy.  
+Unauthorized copying, distribution, or use is strictly prohibited.
