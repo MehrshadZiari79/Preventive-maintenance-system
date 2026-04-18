@@ -48,7 +48,8 @@ def SessionLocal():
 
 
 def init_db():
-    from database import models
+    from database import models          # existing models
+    from database import work_order      # register WorkOrder table
     from config import DB_PATH
     Base.metadata.create_all(bind=get_engine())
     print(f"✅ Database ready at: {DB_PATH}")

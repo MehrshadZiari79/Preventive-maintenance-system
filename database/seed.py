@@ -11,11 +11,11 @@ def hash_password(password: str) -> str:
 def seed_admin():
     db = SessionLocal()
     try:
-        existing = db.query(User).filter(
+        existing_admin = db.query(User).filter(
             User.username == DEFAULT_ADMIN_USERNAME
         ).first()
 
-        if not existing:
+        if not existing_admin:
             admin = User(
                 username=DEFAULT_ADMIN_USERNAME,
                 password_hash=hash_password(DEFAULT_ADMIN_PASSWORD),
@@ -28,6 +28,25 @@ def seed_admin():
             print("✅ Admin user created.")
         else:
             print("ℹ️  Admin already exists, skipping seed.")
+
+        existing_tech = db.query(User).filter(
+            User.username == "technician"
+        ).first()
+
+        if not existing_tech:
+            technician = User(
+                username="technician",
+                password_hash=hash_password("tech123"),
+                full_name="تکنسین پیش‌فرض",
+                role=UserRole.TECHNICIAN.value,
+                is_active=True,
+            )
+            db.add(technician)
+            db.commit()
+            print("✅ Default technician created (username: technician, password: tech123).")
+        else:
+            print("ℹ️  Technician already exists, skipping seed.")
+
     except Exception as e:
         db.rollback()
         print(f"❌ Seed error: {e}")

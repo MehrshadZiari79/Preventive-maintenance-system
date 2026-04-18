@@ -2,6 +2,10 @@ import tkinter as tk
 from tkinter import messagebox
 from auth.auth_manager import AuthManager
 from database.models import UserRole
+from database.user_repository import UserRepository
+from database.equipment_repository import EquipmentRepository
+from database.pm_repository import PMRepository
+from database.work_order_repository import WorkOrderRepository
 
 BG = "#F0F4F8"
 WHITE = "#FFFFFF"
@@ -21,7 +25,7 @@ FONT_SMALL = ("Tahoma", 9)
 MENU_ITEMS = [
     ("📊  داشبورد", "dashboard", UserRole.TECHNICIAN.value),
     ("⚙️  تجهیزات", "equipment", UserRole.TECHNICIAN.value),
-    ("📋  برنامه نگهداری", "maintenance_plans", UserRole.MANAGER.value),
+    ("📅  برنامه نگهداری", "pm_schedule", UserRole.MANAGER.value),
     ("📝  دستور کارها", "work_orders", UserRole.TECHNICIAN.value),
     ("🔧  قطعات یدکی", "spare_parts", UserRole.TECHNICIAN.value),
     ("🔍  بازرسی‌ها", "inspections", UserRole.TECHNICIAN.value),
@@ -42,8 +46,14 @@ class MainView(tk.Tk):
         self.title("سیستم نگهداری پیشگیرانه")
         self.configure(bg=BG)
         self._center_window(1200, 700)
+
+        self.user_repo = UserRepository()
+        self.equipment_repo = EquipmentRepository()
+        self.pm_repo = PMRepository()
+
         self._build_ui()
         self._show_view("dashboard")
+        self.wo_repo = WorkOrderRepository()
 
     def _center_window(self, w, h):
         self.update_idletasks()
@@ -101,19 +111,58 @@ class MainView(tk.Tk):
         for w in self.content.winfo_children():
             w.destroy()
 
-        container = tk.Frame(self.content, bg=BG)
-        container.pack(fill="both", expand=True, padx=30, pady=30)
+        user = AuthManager.get_current_user()
+        current_user_dict = {
+            "id": user.id,
+            "username": user.username,
+            "role": user.role,
+            "full_name": user.full_name
+        }
 
-        card = tk.Frame(container, bg=WHITE,
-                        highlightbackground=BORDER, highlightthickness=1)
-        card.pack(fill="both", expand=True)
+        if view_key == "users":
+            from views.users_view import UsersView
+            UsersView(
+                self.content,
+                user_repo=self.user_repo,
+                current_user=current_user_dict
+            ).pack(fill="both", expand=True)
+        elif view_key == "equipment":
+            from views.equipment_view import EquipmentView
+            EquipmentView(
+                self.content,
+                equipment_repo=self.equipment_repo,
+                current_user=current_user_dict
+            ).pack(fill="both", expand=True)
+        elif view_key == "pm_schedule":
+            from views.pm_view import PMView
+            PMView(
+                self.content,
+                pm_repo=self.pm_repo,
+                equipment_repo=self.equipment_repo,
+                user_repo=self.user_repo,
+                current_user=current_user_dict
+            ).pack(fill="both", expand=True)
+        elif view_key == "work_orders":
+            from views.work_order_view import WorkOrderView
+            WorkOrderView(
+                self.content,
+                work_order_repo=self.wo_repo,
+                current_user=current_user_dict
+            ).pack(fill="both", expand=True)
+        else:
+            container = tk.Frame(self.content, bg=BG)
+            container.pack(fill="both", expand=True, padx=30, pady=30)
 
-        label = next((l for l, v, _ in MENU_ITEMS if v == view_key), view_key)
+            card = tk.Frame(container, bg=WHITE,
+                            highlightbackground=BORDER, highlightthickness=1)
+            card.pack(fill="both", expand=True)
 
-        tk.Label(card, text=label, font=("Tahoma", 18, "bold"),
-                 bg=WHITE, fg=TEXT).pack(pady=(50, 10))
-        tk.Label(card, text="این بخش در مراحل بعدی پیاده‌سازی خواهد شد.",
-                 font=FONT_CONTENT, bg=WHITE, fg=SUBTLE).pack()
+            label = next((l for l, v, _ in MENU_ITEMS if v == view_key), view_key)
+
+            tk.Label(card, text=label, font=("Tahoma", 18, "bold"),
+                     bg=WHITE, fg=TEXT).pack(pady=(50, 10))
+            tk.Label(card, text="این بخش در مراحل بعدی پیاده‌سازی خواهد شد.",
+                     font=FONT_CONTENT, bg=WHITE, fg=SUBTLE).pack()
 
     def _logout(self):
         if messagebox.askyesno("خروج", "آیا می‌خواهید خارج شوید؟"):
