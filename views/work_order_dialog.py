@@ -101,7 +101,7 @@ class WorkOrderDialog(tk.Toplevel):
         self.technician_map = {u['username']: u['id'] for u in technicians}
         self.technician_combo['values'] = list(self.technician_map.keys())
         if self.technician_map:
-            self.technician_combo.current(0)
+            self.technician_combo.current(0) 
 
     def _load_data(self):
         wo = self.work_order

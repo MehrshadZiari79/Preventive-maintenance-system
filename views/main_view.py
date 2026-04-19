@@ -149,6 +149,12 @@ class MainView(tk.Tk):
                 work_order_repo=self.wo_repo,
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
+        elif view_key == "reports":
+            from views.reports_view import ReportsView
+            ReportsView(
+                self.content,
+                current_user=current_user_dict
+            ).pack(fill="both", expand=True)
         else:
             container = tk.Frame(self.content, bg=BG)
             container.pack(fill="both", expand=True, padx=30, pady=30)

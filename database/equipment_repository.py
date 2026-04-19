@@ -3,6 +3,7 @@ Equipment Repository - Data Access Layer for Equipment Management
 """
 from typing import Optional
 from datetime import datetime
+from sqlalchemy import func, case
 from database.db import SessionLocal
 from database.models import Equipment
 
@@ -68,22 +69,25 @@ class EquipmentRepository:
             return sorted([r[0] for r in result if r[0]])
 
     def get_stats(self) -> dict:
+        """
+        Fixed: was 4 separate COUNT queries.
+        Now: 1 query using conditional aggregation.
+        """
         with self._session() as session:
-            total = session.query(Equipment).count()
-            operational = session.query(Equipment).filter(
-                Equipment.status == "operational"
-            ).count()
-            maintenance = session.query(Equipment).filter(
-                Equipment.status == "maintenance"
-            ).count()
-            breakdown = session.query(Equipment).filter(
-                Equipment.status == "breakdown"
-            ).count()
+            row = session.query(
+                func.count(Equipment.id).label("total"),
+                func.sum(case((Equipment.status == "operational", 1), else_=0)).label("operational"),
+                func.sum(case((Equipment.status == "maintenance", 1), else_=0)).label("maintenance"),
+                func.sum(case((Equipment.status == "breakdown",  1), else_=0)).label("breakdown"),
+                func.sum(case((Equipment.status == "inactive",   1), else_=0)).label("inactive"),
+            ).one()
+
             return {
-                "total": total,
-                "operational": operational,
-                "maintenance": maintenance,
-                "breakdown": breakdown
+                "total":       row.total       or 0,
+                "operational": row.operational or 0,
+                "maintenance": row.maintenance or 0,
+                "breakdown":   row.breakdown   or 0,
+                "inactive":    row.inactive    or 0,
             }
 
     # ─────────────────────────── WRITE ──────────────────────────
@@ -130,18 +134,18 @@ class EquipmentRepository:
                 if not equipment:
                     return False, "تجهیز یافت نشد."
 
-                equipment.code = code
-                equipment.name = name
-                equipment.category = category
-                equipment.manufacturer = manufacturer or None
-                equipment.model = model or None
-                equipment.serial_number = serial_number or None
-                equipment.location = location
+                equipment.code             = code
+                equipment.name             = name
+                equipment.category         = category
+                equipment.manufacturer     = manufacturer or None
+                equipment.model            = model or None
+                equipment.serial_number    = serial_number or None
+                equipment.location         = location
                 equipment.installation_date = installation_date
-                equipment.status = status
-                equipment.specifications = specifications or None
-                equipment.notes = notes or None
-                equipment.updated_at = datetime.utcnow()
+                equipment.status           = status
+                equipment.specifications   = specifications or None
+                equipment.notes            = notes or None
+                equipment.updated_at       = datetime.utcnow()
 
                 session.commit()
             return True, "اطلاعات تجهیز بروزرسانی شد."
@@ -156,7 +160,7 @@ class EquipmentRepository:
                 ).first()
                 if not equipment:
                     return False, "تجهیز یافت نشد."
-                equipment.status = new_status
+                equipment.status     = new_status
                 equipment.updated_at = datetime.utcnow()
                 session.commit()
             return True, "وضعیت تجهیز تغییر کرد."
@@ -182,18 +186,18 @@ class EquipmentRepository:
     @staticmethod
     def _to_dict(e: Equipment) -> dict:
         return {
-            "id": e.id,
-            "code": e.code,
-            "name": e.name,
-            "category": e.category,
-            "manufacturer": e.manufacturer or "",
-            "model": e.model or "",
-            "serial_number": e.serial_number or "",
-            "location": e.location,
+            "id":                e.id,
+            "code":              e.code,
+            "name":              e.name,
+            "category":          e.category,
+            "manufacturer":      e.manufacturer or "",
+            "model":             e.model or "",
+            "serial_number":     e.serial_number or "",
+            "location":          e.location,
             "installation_date": e.installation_date.strftime("%Y-%m-%d") if e.installation_date else "",
-            "status": e.status,
-            "specifications": e.specifications or "",
-            "notes": e.notes or "",
-            "created_at": e.created_at.strftime("%Y-%m-%d %H:%M") if e.created_at else "",
-            "updated_at": e.updated_at.strftime("%Y-%m-%d %H:%M") if e.updated_at else "",
+            "status":            e.status,
+            "specifications":    e.specifications or "",
+            "notes":             e.notes or "",
+            "created_at":        e.created_at.strftime("%Y-%m-%d %H:%M") if e.created_at else "",
+            "updated_at":        e.updated_at.strftime("%Y-%m-%d %H:%M") if e.updated_at else "",
         }
