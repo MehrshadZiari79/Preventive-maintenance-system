@@ -28,7 +28,21 @@ class PMRepository:
         return SessionLocal()
 
     # ─────────────────────────── READ ───────────────────────────
+    def update_after_completion(self, schedule_id: int, completion_date: datetime):
+        """
+        Update PM schedule after work order completion.
+        Advances last_done and recalculates next_due.
+        """
+        with self._session() as session:
+            schedule = session.query(PMSchedule).filter(PMSchedule.id == schedule_id).first()
+            if not schedule:
+                raise ValueError(f"PM Schedule {schedule_id} not found")
 
+            schedule.last_done = completion_date
+            schedule.next_due = completion_date + timedelta(days=schedule.interval_days)
+
+            session.commit()
+            return self._to_dict(schedule)
     def get_all(self) -> list[dict]:
         """
         Fixed: added joinedload for equipment and technician.

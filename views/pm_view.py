@@ -4,6 +4,7 @@ PM Schedule View - Preventive Maintenance Schedule Management
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+from services.pm_service import PMService
 
 try:
     import jdatetime
@@ -53,6 +54,7 @@ class PMView(tk.Frame):
         self.equipment_repo = equipment_repo
         self.user_repo      = user_repo
         self.current_user   = current_user
+        self._service       = PMService()
 
         self._filter_var  = tk.StringVar(value="همه")
         self._search_var  = tk.StringVar()
@@ -82,6 +84,30 @@ class PMView(tk.Frame):
                   bg=WHITE, fg=HEADER_BG, relief="flat",
                   padx=14, pady=6, cursor="hand2",
                   command=self._add).pack(side="left", padx=16, pady=12)
+
+        tk.Button(hdr, text="🔄  ایجاد دستورکارها", font=FONT_LABEL,
+                  bg=WHITE, fg=HEADER_BG, relief="flat",
+                  padx=14, pady=6, cursor="hand2",
+                  command=self._generate_work_orders).pack(side="left", padx=8, pady=12)
+
+    def _generate_work_orders(self):
+        """Generate work orders for all due PM schedules."""
+        if not messagebox.askyesno("تایید", "آیا می‌خواهید دستورکارهای سررسید را ایجاد کنید؟"):
+            return
+
+        try:
+            created, skipped, errors = self._service.generate_due_work_orders()
+
+            msg_parts = [f"✅ {created} دستورکار جدید ایجاد شد"]
+            if skipped > 0:
+                msg_parts.append(f"⏭️ {skipped} دستورکار تکراری رد شد")
+            if errors:
+                msg_parts.append(f"\n❌ خطاها:\n" + "\n".join(errors[:5]))
+
+            messagebox.showinfo("نتیجه", "\n".join(msg_parts))
+            self._load()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در ایجاد دستورکارها:\n{e}")
 
     def _build_stats_bar(self):
         self._stats_frame = tk.Frame(self, bg=BG)

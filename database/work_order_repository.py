@@ -1,6 +1,6 @@
 from sqlalchemy.orm import joinedload
 from datetime import datetime
-
+from typing import List, Optional
 from database.db import SessionLocal
 from database.work_order import WorkOrder, WorkOrderStatus, WorkOrderType, WorkOrderPriority
 
@@ -129,12 +129,18 @@ class WorkOrderRepository:
             wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
             if not wo:
                 return False, "کار یافت نشد."
+
             wo.status = WorkOrderStatus.COMPLETED
-            wo.end_time = datetime.utcnow()
-            if description:
-                wo.description = description
-            if parts_used:
-                wo.parts_used = parts_used
+            wo.completed_at = datetime.now()
+            wo.completion_notes = description
+            wo.parts_used = parts_used
+
+            # Update PM schedule if this is a preventive work order
+            if wo.schedule_id:
+                from database.pm_repository import PMRepository
+                pm_repo = PMRepository()
+                pm_repo.update_after_completion(wo.schedule_id, wo.completed_at)
+
             db.commit()
             return True, "کار تکمیل شد."
         except Exception as e:
@@ -189,5 +195,24 @@ class WorkOrderRepository:
         except Exception as e:
             db.rollback()
             return False, str(e)
+        finally:
+            db.close()
+
+    def find_by_schedule_and_date(self, pm_schedule_id: int, scheduled_date: datetime) -> Optional[dict]:
+        """Check if work order already exists for this PM schedule and date."""
+        db = SessionLocal()
+        try:
+            wo = db.query(WorkOrder).filter(
+                WorkOrder.schedule_id == pm_schedule_id,
+                WorkOrder.scheduled_date == scheduled_date
+            ).first()
+
+            if wo:
+                return {
+                    'id': wo.id,
+                    'title': wo.title,
+                    'status': wo.status.value
+                }
+            return None
         finally:
             db.close()
