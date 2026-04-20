@@ -41,6 +41,35 @@ class PMStatus(str, Enum):
     OVERDUE = "overdue"
 
 
+class InspectionFrequency(str, Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+    YEARLY = "yearly"
+    CUSTOM = "custom"
+
+
+class CheckpointType(str, Enum):
+    VISUAL = "visual"
+    MEASUREMENT = "measurement"
+    FUNCTIONAL = "functional"
+    SAFETY = "safety"
+
+
+class InspectionStatus(str, Enum):
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class InspectionResult(str, Enum):
+    PASS = "pass"
+    FAIL = "fail"
+    PARTIAL = "partial"
+    NA = "na"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -54,6 +83,7 @@ class User(Base):
     last_login = Column(DateTime, nullable=True)
 
     pm_schedules = relationship("PMSchedule", back_populates="technician", foreign_keys="PMSchedule.technician_id")
+    inspections = relationship("Inspection", back_populates="inspector")
 
     def __repr__(self):
         return f"<User {self.username} ({self.role})>"
@@ -79,6 +109,8 @@ class Equipment(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     pm_schedules = relationship("PMSchedule", back_populates="equipment")
+    inspection_templates = relationship("InspectionTemplate", back_populates="equipment")
+    inspections = relationship("Inspection", back_populates="equipment")
 
     def __repr__(self):
         return f"<Equipment {self.code} - {self.name}>"
@@ -105,10 +137,105 @@ class PMSchedule(Base):
     equipment = relationship("Equipment", back_populates="pm_schedules")
     technician = relationship("User", back_populates="pm_schedules", foreign_keys=[technician_id])
 
-    # Composite index for the most common query: active schedules ordered by due date
     __table_args__ = (
         Index("ix_pm_schedules_active_due", "is_active", "next_due"),
     )
 
     def __repr__(self):
         return f"<PMSchedule {self.title} - {self.frequency}>"
+
+
+class InspectionTemplate(Base):
+    __tablename__ = "inspection_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    equipment_id = Column(Integer, ForeignKey("equipment.id"), nullable=True, index=True)
+    frequency = Column(String(50), nullable=False, default=InspectionFrequency.MONTHLY.value, index=True)
+    estimated_duration_minutes = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    equipment = relationship("Equipment", back_populates="inspection_templates")
+    checkpoints = relationship("InspectionCheckpoint", back_populates="template", cascade="all, delete-orphan")
+    inspections = relationship("Inspection", back_populates="template")
+
+    __table_args__ = (
+        Index("ix_inspection_templates_active_equipment", "is_active", "equipment_id"),
+    )
+
+    def __repr__(self):
+        return f"<InspectionTemplate {self.name}>"
+
+
+class InspectionCheckpoint(Base):
+    __tablename__ = "inspection_checkpoints"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("inspection_templates.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    checkpoint_type = Column(String(50), nullable=False, default=CheckpointType.VISUAL.value)
+    order_number = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    template = relationship("InspectionTemplate", back_populates="checkpoints")
+    results = relationship("InspectionResult", back_populates="checkpoint")
+
+    __table_args__ = (
+        Index("ix_inspection_checkpoints_template_order", "template_id", "order_number"),
+    )
+
+    def __repr__(self):
+        return f"<InspectionCheckpoint {self.title}>"
+
+
+class Inspection(Base):
+    __tablename__ = "inspections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("inspection_templates.id"), nullable=False, index=True)
+    equipment_id = Column(Integer, ForeignKey("equipment.id"), nullable=False, index=True)
+    inspector_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    completed_at = Column(DateTime, nullable=True)
+    status = Column(String(50), default=InspectionStatus.IN_PROGRESS.value, nullable=False, index=True)
+    overall_result = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    template = relationship("InspectionTemplate", back_populates="inspections")
+    equipment = relationship("Equipment", back_populates="inspections")
+    inspector = relationship("User", back_populates="inspections")
+    results = relationship("InspectionResult", back_populates="inspection", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_inspections_status_started", "status", "started_at"),
+        Index("ix_inspections_equipment_status", "equipment_id", "status"),
+    )
+
+    def __repr__(self):
+        return f"<Inspection {self.id} - {self.status}>"
+
+
+class InspectionResult(Base):
+    __tablename__ = "inspection_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    inspection_id = Column(Integer, ForeignKey("inspections.id"), nullable=False, index=True)
+    checkpoint_id = Column(Integer, ForeignKey("inspection_checkpoints.id"), nullable=False, index=True)
+    result = Column(String(50), nullable=False)
+    comment = Column(Text, nullable=True)
+    recorded_at = Column(DateTime, default=datetime.utcnow)
+
+    inspection = relationship("Inspection", back_populates="results")
+    checkpoint = relationship("InspectionCheckpoint", back_populates="results")
+
+    __table_args__ = (
+        Index("ix_inspection_results_inspection_checkpoint", "inspection_id", "checkpoint_id"),
+    )
+
+    def __repr__(self):
+        return f"<InspectionResult {self.result}>"

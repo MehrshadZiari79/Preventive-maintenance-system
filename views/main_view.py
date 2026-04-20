@@ -1,3 +1,4 @@
+# views/main_view.py
 import tkinter as tk
 from tkinter import messagebox
 from auth.auth_manager import AuthManager
@@ -6,6 +7,7 @@ from database.user_repository import UserRepository
 from database.equipment_repository import EquipmentRepository
 from database.pm_repository import PMRepository
 from database.work_order_repository import WorkOrderRepository
+from database.inspection_repository import InspectionRepository
 
 BG = "#F0F4F8"
 WHITE = "#FFFFFF"
@@ -50,10 +52,11 @@ class MainView(tk.Tk):
         self.user_repo = UserRepository()
         self.equipment_repo = EquipmentRepository()
         self.pm_repo = PMRepository()
+        self.wo_repo = WorkOrderRepository()
+        self.inspection_repo = InspectionRepository()
 
         self._build_ui()
         self._show_view("dashboard")
-        self.wo_repo = WorkOrderRepository()
 
     def _center_window(self, w, h):
         self.update_idletasks()
@@ -126,6 +129,7 @@ class MainView(tk.Tk):
                 user_repo=self.user_repo,
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
+
         elif view_key == "equipment":
             from views.equipment_view import EquipmentView
             EquipmentView(
@@ -133,6 +137,7 @@ class MainView(tk.Tk):
                 equipment_repo=self.equipment_repo,
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
+
         elif view_key == "pm_schedule":
             from views.pm_view import PMView
             PMView(
@@ -142,6 +147,7 @@ class MainView(tk.Tk):
                 user_repo=self.user_repo,
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
+
         elif view_key == "work_orders":
             from views.work_order_view import WorkOrderView
             WorkOrderView(
@@ -149,12 +155,21 @@ class MainView(tk.Tk):
                 work_order_repo=self.wo_repo,
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
+
+        elif view_key == "inspections":
+            from views.inspection_view import InspectionView
+            InspectionView(
+                self.content,
+                current_user=current_user_dict
+            ).pack(fill="both", expand=True)
+
         elif view_key == "reports":
             from views.reports_view import ReportsView
             ReportsView(
                 self.content,
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
+
         else:
             container = tk.Frame(self.content, bg=BG)
             container.pack(fill="both", expand=True, padx=30, pady=30)

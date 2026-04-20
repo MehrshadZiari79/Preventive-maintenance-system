@@ -45,8 +45,6 @@ def get_session_factory():
 
 def SessionLocal():
     return get_session_factory()()
-
-
 def init_db():
     from database import models          # existing models
     from database import work_order      # register WorkOrder table
