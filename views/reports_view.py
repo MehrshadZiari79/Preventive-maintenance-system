@@ -1,18 +1,18 @@
-
 # views/reports_view.py
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import numpy as np
+import pandas as pd
 
 from database.report_repository import ReportRepository
 from database.equipment_repository import EquipmentRepository
 
-# Add this Persian status mapping
+# Persian status mapping
 STATUS_FA = {
     "operational": "عملیاتی",
     "maintenance": "در تعمیر",
@@ -51,7 +51,11 @@ class ReportsView(ttk.Frame):
 
         ttk.Button(filter_frame, text="بروزرسانی", command=self._load_dashboard).grid(row=0, column=4, padx=10)
 
-        # Notebook for different report sections
+        # Export button for current table
+        export_btn = ttk.Button(self, text="📤 خروجی Excel از جدول جاری", command=self._export_current_table)
+        export_btn.pack(pady=5, padx=20, anchor=tk.E)
+
+        # Notebook
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
@@ -78,6 +82,72 @@ class ReportsView(ttk.Frame):
         # Tab 6: Trends
         self.trend_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.trend_frame, text="روندها")
+
+    def _export_current_table(self):
+        """Export the currently visible table data to Excel."""
+        current_tab = self.notebook.select()
+        tab_text = self.notebook.tab(current_tab, "text")
+
+        if tab_text == "عملکرد تجهیزات":
+            # Export equipment performance table
+            data = []
+            for child in self.equipment_tree.get_children():
+                values = self.equipment_tree.item(child)['values']
+                data.append({
+                    "ID": values[0],
+                    "نام تجهیز": values[1],
+                    "وضعیت": values[2],
+                    "کل WO": values[3],
+                    "تکمیل شده": values[4],
+                    "PM": values[5],
+                    "CM": values[6],
+                    "MTBF (ساعت)": values[7],
+                    "MTTR (ساعت)": values[8],
+                    "زمان توقف (ساعت)": values[9],
+                })
+            if not data:
+                messagebox.showwarning("هشدار", "داده‌ای برای خروجی وجود ندارد!")
+                return
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx")],
+                initialfile=f"equipment_performance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            )
+            if filename:
+                df = pd.DataFrame(data)
+                df.to_excel(filename, index=False)
+                messagebox.showinfo("موفق", "خروجی با موفقیت ذخیره شد!")
+
+        elif tab_text == "عملکرد تکنسین‌ها":
+            # Export technician performance
+            if not hasattr(self, 'tech_tree'):
+                messagebox.showwarning("هشدار", "داده‌ای برای خروجی وجود ندارد!")
+                return
+            data = []
+            for child in self.tech_tree.get_children():
+                values = self.tech_tree.item(child)['values']
+                data.append({
+                    "تکنسین": values[0],
+                    "کل وظایف": values[1],
+                    "تکمیل شده": values[2],
+                    "نرخ تکمیل (%)": values[3],
+                    "میانگین زمان (ساعت)": values[4],
+                })
+            if not data:
+                messagebox.showwarning("هشدار", "داده‌ای برای خروجی وجود ندارد!")
+                return
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx")],
+                initialfile=f"technician_performance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            )
+            if filename:
+                df = pd.DataFrame(data)
+                df.to_excel(filename, index=False)
+                messagebox.showinfo("موفق", "خروجی با موفقیت ذخیره شد!")
+
+        else:
+            messagebox.showinfo("اطلاع", "خروجی برای این برگه هنوز پیاده‌سازی نشده است.")
 
     def _load_dashboard(self):
         start = self.start_date.get_date()
@@ -116,8 +186,7 @@ class ReportsView(ttk.Frame):
                               "تمام دستورات ثبت شده",
                               row, 0, bg='#2196F3')
 
-        completion_pct = (summary['completed_work_orders'] / summary['total_work_orders'] * 100) if summary[
-                                                                                                        'total_work_orders'] > 0 else 0
+        completion_pct = (summary['completed_work_orders'] / summary['total_work_orders'] * 100) if summary['total_work_orders'] > 0 else 0
         self._create_kpi_card(scrollable_frame, "تکمیل شده",
                               f"{summary['completed_work_orders']}",
                               f"{completion_pct:.1f}% از کل",
@@ -140,8 +209,7 @@ class ReportsView(ttk.Frame):
                               "تجهیزات ثبت شده",
                               row, 0, bg='#9C27B0')
 
-        operational_pct = (summary['operational_equipment'] / summary['total_equipment'] * 100) if summary[
-                                                                                                       'total_equipment'] > 0 else 0
+        operational_pct = (summary['operational_equipment'] / summary['total_equipment'] * 100) if summary['total_equipment'] > 0 else 0
         self._create_kpi_card(scrollable_frame, "عملیاتی",
                               f"{summary['operational_equipment']}",
                               f"{operational_pct:.1f}% آماده",
@@ -541,6 +609,7 @@ class ReportsView(ttk.Frame):
                 f"{item['avg_completion_hours']:.1f}"
             ))
 
+        self.tech_tree = tree
         tree.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
     def _load_trends(self):

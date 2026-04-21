@@ -9,8 +9,20 @@ class UserRole(str, Enum):
     ADMIN = "admin"
     MANAGER = "manager"
     TECHNICIAN = "technician"
+class ProductionLog(Base):
+    __tablename__ = "production_logs"
 
+    id = Column(Integer, primary_key=True, index=True)
+    equipment_id = Column(Integer, ForeignKey("equipment.id"), nullable=False, index=True)
+    log_date = Column(DateTime, nullable=False, index=True)
+    operating_hours = Column(Numeric(10, 2), default=0.0, nullable=False)
+    planned_hours = Column(Numeric(10, 2), default=0.0, nullable=False)
+    downtime_hours = Column(Numeric(10, 2), default=0.0, nullable=False)
+    output_units = Column(Integer, default=0, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    equipment = relationship("Equipment", backref="production_logs")
 class EquipmentStatus(str, Enum):
     OPERATIONAL = "operational"
     MAINTENANCE = "maintenance"

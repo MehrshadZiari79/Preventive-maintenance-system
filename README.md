@@ -35,7 +35,7 @@
 
 ## 🔍 Overview
 
-**Dairy PM** is a Windows desktop application built exclusively for the maintenance department of **Gela Dairy (گلا دری)**, located in Amol, Iran.
+**Dairy PM** is a Windows desktop application built exclusively for the maintenance department of **Gela Dairy (گلا )**, located in Amol, Iran.
 
 It provides a complete toolset for:
 - Registering and tracking production equipment

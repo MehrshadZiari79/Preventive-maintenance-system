@@ -1,4 +1,4 @@
-# utils/export_service.py
+# services/export_service.py
 """
 Export Service — Excel and PDF generation for all modules.
 Libraries: openpyxl (Excel), reportlab (PDF).
@@ -29,7 +29,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 # ── Constants ────────────────────────────────────────────────────────────────
-COMPANY_NAME = "شرکت گلا دری — آمل"
+COMPANY_NAME = "شرکت گلا  — آمل"
 APP_NAME     = "سیستم مدیریت نگهداری پیشگیرانه"
 
 # Colour palette (matches app theme)
@@ -792,17 +792,16 @@ def export_inspections_excel(inspections: list[dict], path: str) -> str:
     return path
 
 
-def export_inspection_report_pdf(inspection: dict, path: str) -> str:
+def export_inspection_report_pdf(inspection, path: str) -> str:
     """
     Export a completed inspection as a detailed PDF report.
-    inspection: dict from InspectionService._inspection_to_dict()
-                Must include 'template_obj' for checkpoint details.
+    inspection: ORM Inspection object (with results and template loaded).
     """
-    doc   = SimpleDocTemplate(path, pagesize=A4,
-                              leftMargin=1.5*cm, rightMargin=1.5*cm,
-                              topMargin=1.5*cm, bottomMargin=1.5*cm)
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=1.5*cm, rightMargin=1.5*cm,
+                            topMargin=1.5*cm, bottomMargin=1.5*cm)
     story = []
-    st    = _pdf_styles()
+    st = _pdf_styles()
 
     RESULT_FA = {
         "pass":    "✓ Pass / قبول",
@@ -818,37 +817,35 @@ def export_inspection_report_pdf(inspection: dict, path: str) -> str:
         "":        "In Progress",
     }
 
-    overall = inspection.get("overall_result", "")
+    overall = inspection.overall_result or ""
+    template_name = inspection.template.name if inspection.template else "N/A"
     _pdf_header(story, "Inspection Report",
-                f"Inspection #{inspection.get('id', '')} — "
-                f"{inspection.get('template_name', '')}")
+                f"Inspection #{inspection.id} — {template_name}")
 
     _pdf_section(story, "Inspection Summary — خلاصه بازرسی")
     _pdf_kv_table(story, [
-        ("Inspection # / شناسه",    str(inspection.get("id", ""))),
-        ("Template / قالب",         inspection.get("template_name", "")),
-        ("Equipment / تجهیز",       inspection.get("equipment_name", "")),
-        ("Inspector / بازرس",       inspection.get("inspector_name", "")),
-        ("Status / وضعیت",          inspection.get("status", "")),
+        ("Inspection # / شناسه",    str(inspection.id)),
+        ("Template / قالب",         template_name),
+        ("Equipment / تجهیز",       inspection.equipment.name if inspection.equipment else "—"),
+        ("Inspector / بازرس",       inspection.inspector.full_name if inspection.inspector else "—"),
+        ("Status / وضعیت",          inspection.status),
         ("Overall Result / نتیجه",  OVERALL_FA.get(overall, overall)),
-        ("Started / شروع",          inspection.get("started_at", "")),
-        ("Completed / پایان",       inspection.get("completed_at", "") or "—"),
+        ("Started / شروع",          inspection.started_at.strftime("%Y-%m-%d %H:%M") if inspection.started_at else "—"),
+        ("Completed / پایان",       inspection.completed_at.strftime("%Y-%m-%d %H:%M") if inspection.completed_at else "—"),
     ])
 
     # Checkpoint results
     _pdf_section(story, "Checkpoint Results — نتایج چک‌پوینت‌ها")
 
-    results_map = {r["checkpoint_id"]: r for r in inspection.get("results", [])}
-    template_obj = inspection.get("template_obj")
-
-    if template_obj and hasattr(template_obj, "checkpoints"):
-        checkpoints = sorted(template_obj.checkpoints, key=lambda x: x.order_number)
+    results_map = {r.checkpoint_id: r for r in inspection.results}
+    if inspection.template and hasattr(inspection.template, 'checkpoints'):
+        checkpoints = sorted(inspection.template.checkpoints, key=lambda x: x.order_number)
         rows = []
         for cp in checkpoints:
-            r          = results_map.get(cp.id, {})
-            res_val    = r.get("result", "")
-            res_text   = RESULT_FA.get(res_val, res_val)
-            comment    = r.get("comment", "") or "—"
+            r = results_map.get(cp.id)
+            res_val = r.result if r else ""
+            res_text = RESULT_FA.get(res_val, res_val)
+            comment = r.comment if r and r.comment else "—"
             rows.append([
                 str(cp.order_number),
                 cp.title,
@@ -875,9 +872,9 @@ def export_inspection_report_pdf(inspection: dict, path: str) -> str:
         story.append(_para("No checkpoint data available.", st["body"]))
         story.append(Spacer(1, 8))
 
-    if inspection.get("notes"):
+    if inspection.notes:
         _pdf_section(story, "Notes / یادداشت")
-        story.append(_para(inspection["notes"], st["body"]))
+        story.append(_para(inspection.notes, st["body"]))
         story.append(Spacer(1, 8))
 
     _pdf_signature_row(story, ["Inspector / بازرس",
@@ -953,5 +950,70 @@ def export_inspection_checklist_pdf(template: dict, path: str) -> str:
     _pdf_signature_row(story, ["Inspector / بازرس",
                                 "Supervisor / سرپرست",
                                 "Date / تاریخ"])
+    doc.build(story)
+    return path
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  SPARE PARTS EXPORTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def export_spare_parts_excel(parts_list: list, path: str) -> str:
+    """Export spare parts list to Excel."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Spare Parts"
+    ws.sheet_view.rightToLeft = True
+
+    headers = ["شناسه", "شماره قطعه", "نام قطعه", "دسته‌بندی",
+               "موجودی فعلی", "حداقل موجودی", "واحد", "قیمت واحد",
+               "موقعیت", "تامین‌کننده", "توضیحات"]
+
+    _xl_header_style(ws, 1, len(headers), "لیست قطعات یدکی")
+    _xl_col_header(ws, 4, headers)
+
+    for i, part in enumerate(parts_list):
+        _xl_data_row(ws, 5 + i, [
+            part.id,
+            part.part_number,
+            part.name,
+            part.category or "",
+            part.current_stock,
+            part.min_stock,
+            part.unit or "",
+            f"{part.unit_price:.2f}",
+            part.location or "",
+            part.supplier or "",
+            part.description or "",
+        ], zebra=(i % 2 == 1))
+
+    _xl_auto_width(ws)
+    wb.save(path)
+    return path
+
+
+def export_spare_parts_pdf(parts_list: list, path: str) -> str:
+    """Export spare parts list to PDF."""
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=1.5*cm, rightMargin=1.5*cm,
+                            topMargin=1.5*cm, bottomMargin=1.5*cm)
+    story = []
+    st = _pdf_styles()
+
+    _pdf_header(story, "Spare Parts Report", f"Total Parts: {len(parts_list)}")
+
+    # Prepare table data
+    table_data = [["Part Number", "Name", "Category", "Stock", "Price"]]
+    for part in parts_list[:20]:
+        table_data.append([
+            part.part_number,
+            part.name,
+            part.category or "",
+            str(part.current_stock),
+            f"{part.unit_price:.2f}"
+        ])
+
+    _pdf_data_table(story, ["Part Number", "Name", "Category", "Stock", "Price"],
+                    table_data[1:])  # skip header row
     doc.build(story)
     return path

@@ -54,8 +54,13 @@ class SparePartsService:
         return self.repo.get_stats()
 
     # Transaction methods
-    def add_stock_transaction(self, data: Dict[str, Any]) -> SparePartTransaction:
-        """Add stock movement (IN or OUT)"""
+    def add_stock_transaction(self, data: Dict[str, Any], work_order_id: Optional[int] = None) -> SparePartTransaction:
+        """
+        Add stock movement (IN or OUT).
+        If work_order_id is provided, store it in the reference field (overwrites any existing reference).
+        """
+        if work_order_id:
+            data['reference'] = f"WO-{work_order_id}"
         return self.repo.add_transaction(data)
 
     def get_part_transactions(self, part_id: int) -> List[SparePartTransaction]:

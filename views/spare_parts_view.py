@@ -393,12 +393,13 @@ class SparePartForm(tk.Toplevel):
 
 
 class StockTransactionForm(tk.Toplevel):
-    def __init__(self, parent, session, part, trans_type, callback=None):
+    def __init__(self, parent, session, part, trans_type, work_order_id=None, callback=None):
         super().__init__(parent)
         self.session = session
         self.service = SparePartsService(session)
         self.part = part
-        self.trans_type = trans_type  # 'IN' or 'OUT'
+        self.trans_type = trans_type   # 'IN' or 'OUT'
+        self.work_order_id = work_order_id
         self.callback = callback
 
         title = "ورود به انبار" if trans_type == "IN" else "خروج از انبار"
@@ -478,14 +479,14 @@ class StockTransactionForm(tk.Toplevel):
         }
 
         try:
-            self.service.add_stock_transaction(data)
+            # Pass work_order_id if any
+            self.service.add_stock_transaction(data, work_order_id=self.work_order_id)
             messagebox.showinfo("موفق", "عملیات انبار با موفقیت ثبت شد.")
             if self.callback:
                 self.callback()
             self.destroy()
         except Exception as e:
             messagebox.showerror("خطا", str(e))
-
 
 class PartTransactionsView(tk.Toplevel):
     def __init__(self, parent, session, part):
