@@ -1,6 +1,13 @@
 # views/main_view.py
+"""
+Main Application Window - Persistent Sidebar and Content Area
+Professional UI with company logo, full‑screen support, RTL layout, and session management.
+"""
 import tkinter as tk
 from tkinter import messagebox
+import os
+from PIL import Image, ImageTk
+
 from auth.auth_manager import AuthManager
 from database.models import UserRole
 from database.user_repository import UserRepository
@@ -11,6 +18,7 @@ from database.inspection_repository import InspectionRepository
 from services.inspection_service import InspectionService
 from database.db import SessionLocal
 
+# ==================== Theme Constants ====================
 BG = "#F0F4F8"
 WHITE = "#FFFFFF"
 SIDEBAR = "#1A1A2E"
@@ -49,7 +57,8 @@ class MainView(tk.Tk):
         super().__init__()
         self.title("سیستم نگهداری پیشگیرانه")
         self.configure(bg=BG)
-        self._center_window(1200, 700)
+        self._set_fullscreen()
+        self._setup_bindings()
 
         self.user_repo = UserRepository()
         self.equipment_repo = EquipmentRepository()
@@ -60,32 +69,63 @@ class MainView(tk.Tk):
         self._build_ui()
         self._show_view("dashboard")
 
-    def _center_window(self, w, h):
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() // 2) - (w // 2)
-        y = (self.winfo_screenheight() // 2) - (h // 2)
-        self.geometry(f"{w}x{h}+{x}+{y}")
+    def _set_fullscreen(self):
+        """Set window to full screen and make it resizable."""
+        self.attributes('-fullscreen', True)
+        self.minsize(1024, 600)
+
+    def _setup_bindings(self):
+        """Bind keyboard shortcuts for full screen toggle."""
+        self.bind('<Escape>', self._toggle_fullscreen)
+        self.bind('<F11>', self._toggle_fullscreen)
+
+    def _toggle_fullscreen(self, event=None):
+        """Toggle full screen mode."""
+        is_fullscreen = self.attributes('-fullscreen')
+        self.attributes('-fullscreen', not is_fullscreen)
+        if not is_fullscreen:
+            self.geometry("{0}x{1}+0+0".format(self.winfo_screenwidth(), self.winfo_screenheight()))
 
     def _build_ui(self):
         user = AuthManager.get_current_user()
 
-        sidebar = tk.Frame(self, bg=SIDEBAR, width=230)
+        # Sidebar (right side)
+        sidebar = tk.Frame(self, bg=SIDEBAR, width=260)
         sidebar.pack(side="right", fill="y")
         sidebar.pack_propagate(False)
 
-        tk.Label(sidebar, text="🔧 PM System",
-                 font=("Tahoma", 14, "bold"),
-                 bg=SIDEBAR, fg=TEXT_SIDE).pack(pady=(24, 4))
+        # Logo (load from file in project root)
+        try:
+            # Get project root directory (where main.py is)
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            logo_path = os.path.join(project_root, "logo.png")
+            if os.path.exists(logo_path):
+                img = Image.open(logo_path)
+                img = img.resize((60, 60), Image.Resampling.LANCZOS)
+                self.logo_img = ImageTk.PhotoImage(img)
+                logo_label = tk.Label(sidebar, image=self.logo_img, bg=SIDEBAR)
+                logo_label.pack(pady=(25, 5))
+            else:
+                print(f"Logo not found at {logo_path}")
+        except Exception as e:
+            print(f"Logo error: {e}")
 
+        # App title
+        tk.Label(sidebar, text="🏭 PM System",
+                 font=("Tahoma", 16, "bold"),
+                 bg=SIDEBAR, fg=TEXT_SIDE).pack(pady=(5, 15))
+
+        # User info
         tk.Label(sidebar, text=user.full_name,
-                 font=("Tahoma", 10, "bold"),
+                 font=("Tahoma", 11, "bold"),
                  bg=SIDEBAR, fg=TEXT_SIDE).pack()
-
         tk.Label(sidebar, text=ROLE_FA.get(user.role, user.role),
                  font=FONT_SMALL, bg=SIDEBAR, fg=SUBTLE).pack(pady=(2, 20))
 
-        tk.Frame(sidebar, bg=SIDEBAR_HOVER, height=1).pack(fill="x", padx=16, pady=(0, 10))
+        # Separator
+        tk.Frame(sidebar, bg=SIDEBAR_HOVER, height=2).pack(fill="x", padx=16, pady=(0, 10))
 
+        # Menu buttons
         for label, view_key, min_role in MENU_ITEMS:
             if not AuthManager.has_permission(min_role):
                 continue
@@ -93,22 +133,22 @@ class MainView(tk.Tk):
                 sidebar, text=label, font=FONT_MENU,
                 bg=SIDEBAR, fg=TEXT_SIDE,
                 activebackground=SIDEBAR_HOVER, activeforeground=WHITE,
-                relief="flat", anchor="e", padx=20, pady=10,
+                relief="flat", anchor="e", padx=20, pady=12,
                 cursor="hand2",
                 command=lambda v=view_key: self._show_view(v)
             )
             btn.pack(fill="x")
 
-        tk.Frame(sidebar, bg=SIDEBAR_HOVER, height=1).pack(
-            side="bottom", fill="x", padx=16, pady=(0, 4))
+        # Logout button at bottom (no extra space)
         tk.Button(
             sidebar, text="🚪  خروج", font=FONT_MENU,
             bg=SIDEBAR, fg="#FF6B6B",
             activebackground=SIDEBAR_HOVER, activeforeground="#FF6B6B",
-            relief="flat", anchor="e", padx=20, pady=10,
+            relief="flat", anchor="e", padx=20, pady=12,
             cursor="hand2", command=self._logout
-        ).pack(side="bottom", fill="x")
+        ).pack(side="bottom", fill="x", pady=(0, 10))
 
+        # Content area
         self.content = tk.Frame(self, bg=BG)
         self.content.pack(side="right", fill="both", expand=True)
 
@@ -173,7 +213,15 @@ class MainView(tk.Tk):
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
 
+        elif view_key == "spare_parts":
+            from views.spare_parts_view import SparePartsView
+            SparePartsView(
+                self.content,
+                session=SessionLocal()
+            ).pack(fill="both", expand=True)
+
         else:
+            # Placeholder for future views
             container = tk.Frame(self.content, bg=BG)
             container.pack(fill="both", expand=True, padx=30, pady=30)
 
@@ -183,8 +231,8 @@ class MainView(tk.Tk):
 
             label = next((l for l, v, _ in MENU_ITEMS if v == view_key), view_key)
 
-            tk.Label(card, text=label, font=("Tahoma", 18, "bold"),
-                     bg=WHITE, fg=TEXT).pack(pady=(50, 10))
+            tk.Label(card, text=label, font=("Tahoma", 20, "bold"),
+                     bg=WHITE, fg=TEXT).pack(pady=(60, 15))
             tk.Label(card, text="این بخش در مراحل بعدی پیاده‌سازی خواهد شد.",
                      font=FONT_CONTENT, bg=WHITE, fg=SUBTLE).pack()
 

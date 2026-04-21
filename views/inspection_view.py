@@ -351,17 +351,14 @@ class InspectionView(tk.Frame):
         self._ins_tree.delete(*self._ins_tree.get_children())
 
         for ins in inspections:
-            # Access attributes with dot notation
             status_text = STATUS_FA.get(ins.status, ins.status)
             result_text = RESULT_FA.get(ins.overall_result or "", ins.overall_result or "")
             tag = RESULT_TAG.get(ins.overall_result or "", "none")
 
-            # Get related names (handle potential None relationships)
             template_name = ins.template.name if ins.template and hasattr(ins.template, 'name') else "—"
             equipment_name = ins.equipment.name if ins.equipment and hasattr(ins.equipment, 'name') else "—"
             inspector_name = ins.inspector.username if ins.inspector and hasattr(ins.inspector, 'username') else "—"
 
-            # Format dates
             started_at = ins.started_at.strftime("%Y-%m-%d %H:%M") if ins.started_at else "—"
             completed_at = ins.completed_at.strftime("%Y-%m-%d %H:%M") if ins.completed_at else "—"
 
@@ -385,10 +382,7 @@ class InspectionView(tk.Frame):
             tag = "active" if t.is_active else "inactive"
             active_text = "✅ فعال" if t.is_active else "❌ غیرفعال"
 
-            # Access equipment name through relationship
             equipment_name = t.equipment.name if t.equipment and hasattr(t.equipment, 'name') else "—"
-
-            # Get checkpoint count
             checkpoint_count = len(t.checkpoints) if hasattr(t, 'checkpoints') and t.checkpoints else 0
 
             self._tpl_tree.insert("", "end", iid=str(t.id), tags=(tag,),
@@ -440,12 +434,11 @@ class InspectionView(tk.Frame):
     def _start_inspection(self):
         """Start a new inspection"""
         try:
-            dlg = InspectionStartDialog(self, self.service, self.current_user)
+            dlg = InspectionStartDialog(self, self.service.db, self.service, self.current_user)
             self.wait_window(dlg)
             if dlg.result:
                 self._load()
-                # Automatically open execute dialog for the new inspection
-                dlg2 = InspectionExecuteDialog(self, self.service, dlg.result)
+                dlg2 = InspectionExecuteDialog(self, self.service.db, self.service, dlg.result)
                 self.wait_window(dlg2)
                 self._load()
         except Exception as e:
@@ -457,7 +450,6 @@ class InspectionView(tk.Frame):
         if not ins_id:
             return
 
-        # Find the inspection in our loaded data
         ins = next((i for i in self._all_inspections if i.id == ins_id), None)
         if not ins:
             messagebox.showerror("خطا", "بازرسی مورد نظر یافت نشد")
@@ -468,7 +460,7 @@ class InspectionView(tk.Frame):
             return
 
         try:
-            dlg = InspectionExecuteDialog(self, self.service, ins_id)
+            dlg = InspectionExecuteDialog(self, self.service.db, self.service, ins_id)
             self.wait_window(dlg)
             self._load()
         except Exception as e:
@@ -481,7 +473,7 @@ class InspectionView(tk.Frame):
             return
 
         try:
-            dlg = InspectionDetailDialog(self, self.service, ins_id)
+            dlg = InspectionDetailDialog(self, self.service.db, self.service, ins_id)
             self.wait_window(dlg)
         except Exception as e:
             messagebox.showerror("خطا", f"خطا در نمایش جزئیات: {str(e)}")
@@ -498,8 +490,6 @@ class InspectionView(tk.Frame):
             return
 
         try:
-            # Note: You need to implement delete_inspection in your service
-            # For now, assuming it exists
             if hasattr(self.service, 'delete_inspection'):
                 ok, msg = self.service.delete_inspection(ins_id)
                 if ok:
@@ -536,7 +526,7 @@ class InspectionView(tk.Frame):
     def _add_template(self):
         """Add a new template"""
         try:
-            dlg = TemplateDialog(self, self.service)
+            dlg = TemplateDialog(self, self.service.db, self.service)
             self.wait_window(dlg)
             if dlg.result:
                 self._load()
@@ -550,7 +540,7 @@ class InspectionView(tk.Frame):
             return
 
         try:
-            dlg = TemplateDialog(self, self.service, template_id=tpl_id)
+            dlg = TemplateDialog(self, self.service.db, self.service, template_id=tpl_id)
             self.wait_window(dlg)
             if dlg.result:
                 self._load()
@@ -571,7 +561,6 @@ class InspectionView(tk.Frame):
                 else:
                     messagebox.showerror("خطا", msg)
             else:
-                # Fallback: update template directly
                 template = self.service.get_template(tpl_id)
                 if template:
                     from schemas.inspection import InspectionTemplateUpdate
@@ -590,7 +579,6 @@ class InspectionView(tk.Frame):
         if not tpl_id:
             return
 
-        # Check if template has associated inspections
         template = self.service.get_template(tpl_id)
         if template and hasattr(template, 'inspections') and template.inspections:
             if not messagebox.askyesno("هشدار",
@@ -613,7 +601,6 @@ class InspectionView(tk.Frame):
                 else:
                     messagebox.showerror("خطا", msg)
             else:
-                # Fallback: delete using existing method
                 if self.service.delete_template(tpl_id):
                     messagebox.showinfo("موفق", "قالب با موفقیت حذف شد")
                     self._load()

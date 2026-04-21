@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from database.db import Base
 
-
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index, Numeric
 class UserRole(str, Enum):
     ADMIN = "admin"
     MANAGER = "manager"
@@ -239,3 +239,41 @@ class InspectionResult(Base):
 
     def __repr__(self):
         return f"<InspectionResult {self.result}>"
+
+
+# Add to database/models.py
+
+class SparePart(Base):
+    __tablename__ = "spare_parts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    part_number = Column(String(100), unique=True, nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(100), nullable=True, index=True)
+    unit = Column(String(20), nullable=True)
+    min_stock = Column(Integer, default=0, nullable=False)
+    current_stock = Column(Integer, default=0, nullable=False)
+    unit_price = Column(Numeric(10, 2), default=0.0, nullable=False)
+    location = Column(String(100), nullable=True)
+    supplier = Column(String(200), nullable=True)
+    equipment_codes = Column(Text, nullable=True)  # comma-separated
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    transactions = relationship("SparePartTransaction", back_populates="part", cascade="all, delete-orphan")
+
+
+class SparePartTransaction(Base):
+    __tablename__ = "spare_part_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    part_id = Column(Integer, ForeignKey("spare_parts.id"), nullable=False, index=True)
+    transaction_type = Column(String(10), nullable=False)  # 'IN' or 'OUT'
+    quantity = Column(Integer, nullable=False)
+    reference = Column(String(100), nullable=True)  # e.g., PO number, WO number
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    part = relationship("SparePart", back_populates="transactions")

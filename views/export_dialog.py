@@ -1,11 +1,14 @@
 # views/export_dialog.py
 """
-Export Dialog - Export inspections, PM schedules, work orders, and equipment to Excel and PDF
+Export Dialog - Export inspections, PM schedules, work orders, equipment, spare parts to Excel and PDF
+Excel: Persian headers + Notes & Signature columns
+PDF: English text + signature line at bottom (to avoid font issues)
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 from typing import Optional, List
+import os
 
 from services.inspection_service import InspectionService
 from database.models import Inspection, InspectionTemplate
@@ -25,8 +28,6 @@ try:
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -330,6 +331,7 @@ class InspectionExportDialog(BaseExportDialog):
             "overall_result": "✅ قبول" if inspection.overall_result == "pass" else "❌ رد" if inspection.overall_result == "fail" else "⚠️ جزئی",
             "started_at": inspection.started_at.strftime("%Y-%m-%d %H:%M") if inspection.started_at else "—",
             "completed_at": inspection.completed_at.strftime("%Y-%m-%d %H:%M") if inspection.completed_at else "—",
+            "notes": inspection.notes or "",
             "results": results
         }
 
@@ -369,7 +371,9 @@ class InspectionExportDialog(BaseExportDialog):
                     "وضعیت": ins["status"],
                     "نتیجه": ins["overall_result"],
                     "تاریخ شروع": ins["started_at"],
-                    "تاریخ پایان": ins["completed_at"]
+                    "تاریخ پایان": ins["completed_at"],
+                    "توضیحات": ins["notes"],
+                    "امضا": ""
                 })
 
             df_summary = pd.DataFrame(summary_data)
@@ -388,7 +392,6 @@ class InspectionExportDialog(BaseExportDialog):
                             "نتیجه": result["result"],
                             "نظر": result["comment"]
                         })
-
                 if details_data:
                     df_details = pd.DataFrame(details_data)
                     df_details.to_excel(writer, sheet_name="جزئیات بازرسی‌ها", index=False)
@@ -399,16 +402,15 @@ class InspectionExportDialog(BaseExportDialog):
             return
 
         doc = SimpleDocTemplate(filename, pagesize=A4)
-        elements = []
         styles = getSampleStyleSheet()
+        elements = []
 
         # Title
-        title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=16, alignment=1)
-        elements.append(Paragraph("گزارش بازرسی‌ها", title_style))
+        elements.append(Paragraph("Inspection Report", styles['Title']))
         elements.append(Spacer(1, 20))
 
         # Table
-        table_data = [["شناسه", "قالب", "تجهیز", "بازرس", "وضعیت", "نتیجه"]]
+        table_data = [["ID", "Template", "Equipment", "Inspector", "Status", "Result"]]
         for ins in data[:20]:
             table_data.append([
                 str(ins["id"]), ins["template_name"], ins["equipment_name"],
@@ -417,13 +419,22 @@ class InspectionExportDialog(BaseExportDialog):
 
         table = Table(table_data)
         table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1A73E8')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ]))
 
         elements.append(table)
+        elements.append(Spacer(1, 20))
+
+        # Notes and Signature
+        notes = "\n".join([f"Inspection {ins['id']}: {ins['notes']}" for ins in data if ins.get('notes')])
+        if notes:
+            elements.append(Paragraph("Notes:", styles['Heading4']))
+            elements.append(Paragraph(notes, styles['Normal']))
+            elements.append(Spacer(1, 10))
+        elements.append(Paragraph("Signature: ___________________________", styles['Normal']))
         doc.build(elements)
 
 
@@ -466,8 +477,7 @@ class EquipmentExportDialog(BaseExportDialog):
 
         if self.selected_equipment:
             tk.Radiobutton(range_frame, text=f"تجهیز جاری: {self.selected_equipment['name']}",
-                           variable=self.data_range, value="current", bg=BG, font=("Tahoma", 10)).pack(anchor="w",
-                                                                                                       pady=2)
+                           variable=self.data_range, value="current", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
 
         tk.Radiobutton(range_frame, text="همه تجهیزات", variable=self.data_range,
                        value="all", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
@@ -529,7 +539,7 @@ class EquipmentExportDialog(BaseExportDialog):
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
             export_data = []
             for eq in data:
-                row = {
+                export_data.append({
                     "کد": eq.get("code", ""),
                     "نام تجهیز": eq.get("name", ""),
                     "دسته": eq.get("category", ""),
@@ -541,27 +551,10 @@ class EquipmentExportDialog(BaseExportDialog):
                     "وضعیت": STATUS_FA.get(eq.get("status", ""), eq.get("status", "")),
                     "مشخصات": eq.get("specifications", ""),
                     "توضیحات": eq.get("notes", ""),
-                    "تاریخ ایجاد": eq.get("created_at", ""),
-                    "آخرین بروزرسانی": eq.get("updated_at", "")
-                }
-                export_data.append(row)
-
+                    "امضا": ""
+                })
             df = pd.DataFrame(export_data)
             df.to_excel(writer, sheet_name="تجهیزات", index=False)
-
-            # Auto-adjust column widths
-            worksheet = writer.sheets["تجهیزات"]
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
 
     def _export_to_pdf(self, data, filename_prefix):
         filename = super()._export_to_pdf(data, filename_prefix)
@@ -569,56 +562,37 @@ class EquipmentExportDialog(BaseExportDialog):
             return
 
         doc = SimpleDocTemplate(filename, pagesize=A4)
-        elements = []
         styles = getSampleStyleSheet()
+        elements = []
 
-        title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=16, alignment=1)
-        elements.append(Paragraph("گزارش تجهیزات", title_style))
+        elements.append(Paragraph("Equipment Report", styles['Title']))
         elements.append(Spacer(1, 20))
 
-        # Create table (limit to 20 rows for PDF)
-        table_data = [["کد", "نام", "دسته", "موقعیت", "وضعیت"]]
+        table_data = [["Code", "Name", "Category", "Location", "Status"]]
         for eq in data[:20]:
             table_data.append([
-                eq.get("code", ""),
-                eq.get("name", ""),
-                eq.get("category", ""),
-                eq.get("location", ""),
-                STATUS_FA.get(eq.get("status", ""), eq.get("status", ""))
+                eq.get("code", ""), eq.get("name", ""), eq.get("category", ""),
+                eq.get("location", ""), STATUS_FA.get(eq.get("status", ""), eq.get("status", ""))
             ])
 
         table = Table(table_data)
         table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1A73E8')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
         ]))
 
         elements.append(table)
+        elements.append(Spacer(1, 20))
 
-        # Add statistics if requested
-        if self.include_stats.get():
-            elements.append(Spacer(1, 20))
-            stats = {
-                "total": len(data),
-                "operational": sum(1 for e in data if e.get("status") == "operational"),
-                "maintenance": sum(1 for e in data if e.get("status") == "maintenance"),
-                "breakdown": sum(1 for e in data if e.get("status") == "breakdown"),
-                "inactive": sum(1 for e in data if e.get("status") == "inactive"),
-            }
-            stats_text = f"""
-            <b>آمار کلی تجهیزات:</b><br/>
-            کل تجهیزات: {stats['total']}<br/>
-            عملیاتی: {stats['operational']}<br/>
-            در تعمیر: {stats['maintenance']}<br/>
-            خراب: {stats['breakdown']}<br/>
-            غیرفعال: {stats['inactive']}
-            """
-            elements.append(Paragraph(stats_text, styles['Normal']))
-
+        # Notes and Signature
+        notes = "\n".join([f"{eq.get('name')}: {eq.get('notes', '')}" for eq in data if eq.get('notes')])
+        if notes:
+            elements.append(Paragraph("Notes:", styles['Heading4']))
+            elements.append(Paragraph(notes, styles['Normal']))
+            elements.append(Spacer(1, 10))
+        elements.append(Paragraph("Signature: ___________________________", styles['Normal']))
         doc.build(elements)
 
 
@@ -661,8 +635,7 @@ class PMExportDialog(BaseExportDialog):
 
         if self.selected_pm:
             tk.Radiobutton(range_frame, text=f"برنامه جاری: {self.selected_pm.get('title', '')}",
-                           variable=self.data_range, value="current", bg=BG, font=("Tahoma", 10)).pack(anchor="w",
-                                                                                                       pady=2)
+                           variable=self.data_range, value="current", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
 
         tk.Radiobutton(range_frame, text="همه برنامه‌ها", variable=self.data_range,
                        value="all", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
@@ -722,22 +695,20 @@ class PMExportDialog(BaseExportDialog):
             return
 
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-            df = pd.DataFrame(data)
+            export_data = []
+            for pm in data:
+                export_data.append({
+                    "شناسه": pm.get("id", ""),
+                    "عنوان": pm.get("title", ""),
+                    "تجهیز": pm.get("equipment_name", ""),
+                    "دوره": pm.get("frequency", ""),
+                    "وضعیت": "فعال" if pm.get("is_active") else "غیرفعال",
+                    "موعد بعدی": pm.get("next_due", ""),
+                    "توضیحات": pm.get("notes", ""),
+                    "امضا": ""
+                })
+            df = pd.DataFrame(export_data)
             df.to_excel(writer, sheet_name="برنامه‌های نت", index=False)
-
-            # Auto-adjust column widths
-            worksheet = writer.sheets["برنامه‌های نت"]
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
 
     def _export_to_pdf(self, data, filename_prefix):
         filename = super()._export_to_pdf(data, filename_prefix)
@@ -745,34 +716,38 @@ class PMExportDialog(BaseExportDialog):
             return
 
         doc = SimpleDocTemplate(filename, pagesize=A4)
-        elements = []
         styles = getSampleStyleSheet()
+        elements = []
 
-        title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=16, alignment=1)
-        elements.append(Paragraph("گزارش برنامه‌های نت پیشگیرانه", title_style))
+        elements.append(Paragraph("Preventive Maintenance Report", styles['Title']))
         elements.append(Spacer(1, 20))
 
-        # Table
-        table_data = [["شناسه", "عنوان", "تجهیز", "دوره", "وضعیت", "موعد بعدی"]]
+        table_data = [["ID", "Title", "Equipment", "Frequency", "Active", "Next Due"]]
         for item in data[:20]:
+            active_str = "Yes" if item.get("is_active") else "No"
             table_data.append([
-                str(item.get("id", "")),
-                item.get("title", ""),
-                item.get("equipment_name", ""),
-                item.get("frequency", ""),
-                item.get("is_active", ""),
-                item.get("next_due", "")
+                str(item.get("id", "")), item.get("title", ""), item.get("equipment_name", ""),
+                item.get("frequency", ""), active_str, item.get("next_due", "")
             ])
 
         table = Table(table_data)
         table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1A73E8')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ]))
 
         elements.append(table)
+        elements.append(Spacer(1, 20))
+
+        # Notes and Signature
+        notes = "\n".join([f"{item.get('title')}: {item.get('notes', '')}" for item in data if item.get('notes')])
+        if notes:
+            elements.append(Paragraph("Notes:", styles['Heading4']))
+            elements.append(Paragraph(notes, styles['Normal']))
+            elements.append(Spacer(1, 10))
+        elements.append(Paragraph("Signature: ___________________________", styles['Normal']))
         doc.build(elements)
 
 
@@ -784,7 +759,7 @@ class WorkOrderExportDialog(BaseExportDialog):
     def __init__(self, parent, wo_repo, selected_wo_id=None):
         self.wo_repo = wo_repo
         self.selected_wo_id = selected_wo_id
-        super().__init__(parent, "📤 خروجی دستورکارها")
+        super().__init__(parent, "📤 خروجی دستورکارها", width=700, height=700)
         self._build_ui()
 
     def _build_ui(self):
@@ -815,8 +790,7 @@ class WorkOrderExportDialog(BaseExportDialog):
 
         if self.selected_wo_id:
             tk.Radiobutton(range_frame, text="دستورکار جاری",
-                           variable=self.data_range, value="current", bg=BG, font=("Tahoma", 10)).pack(anchor="w",
-                                                                                                       pady=2)
+                           variable=self.data_range, value="current", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
 
         tk.Radiobutton(range_frame, text="همه دستورکارها", variable=self.data_range,
                        value="all", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
@@ -858,21 +832,16 @@ class WorkOrderExportDialog(BaseExportDialog):
                   relief="flat", cursor="hand2", padx=20, pady=8).pack(side="right", padx=5)
 
     def _get_data(self):
-        # Get all work orders from repository
         try:
             all_wos = self.wo_repo.get_all_work_orders()
         except Exception:
-            # Fallback if method doesn't exist
             all_wos = []
 
-        # Apply status filter
         status = self.status_filter.get()
         if status != "all":
             all_wos = [wo for wo in all_wos if wo.get("status") == status]
 
-        # If current selected
         if self.data_range.get() == "current" and self.selected_wo_id:
-            # Filter to the selected ID
             all_wos = [wo for wo in all_wos if wo.get("id") == self.selected_wo_id]
 
         return all_wos
@@ -902,22 +871,20 @@ class WorkOrderExportDialog(BaseExportDialog):
             return
 
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-            df = pd.DataFrame(data)
+            export_data = []
+            for wo in data:
+                export_data.append({
+                    "شناسه": wo.get("id", ""),
+                    "عنوان": wo.get("title", ""),
+                    "تجهیز": wo.get("equipment_name", ""),
+                    "اولویت": wo.get("priority", ""),
+                    "وضعیت": wo.get("status", ""),
+                    "تاریخ درخواست": wo.get("request_date", ""),
+                    "توضیحات": wo.get("description", ""),
+                    "امضا": ""
+                })
+            df = pd.DataFrame(export_data)
             df.to_excel(writer, sheet_name="دستورکارها", index=False)
-
-            # Auto-adjust column widths
-            worksheet = writer.sheets["دستورکارها"]
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
 
     def _export_to_pdf(self, data, filename_prefix):
         filename = super()._export_to_pdf(data, filename_prefix)
@@ -925,34 +892,173 @@ class WorkOrderExportDialog(BaseExportDialog):
             return
 
         doc = SimpleDocTemplate(filename, pagesize=A4)
-        elements = []
         styles = getSampleStyleSheet()
+        elements = []
 
-        title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=16, alignment=1)
-        elements.append(Paragraph("گزارش دستورکارها", title_style))
+        elements.append(Paragraph("Work Order Report", styles['Title']))
         elements.append(Spacer(1, 20))
 
-        # Table
-        table_data = [["شناسه", "عنوان", "تجهیز", "اولویت", "وضعیت", "تاریخ درخواست"]]
+        table_data = [["ID", "Title", "Equipment", "Priority", "Status", "Request Date"]]
         for item in data[:20]:
             table_data.append([
-                str(item.get("id", "")),
-                item.get("title", ""),
-                item.get("equipment_name", ""),
-                item.get("priority", ""),
-                item.get("status", ""),
-                item.get("request_date", "")
+                str(item.get("id", "")), item.get("title", ""), item.get("equipment_name", ""),
+                item.get("priority", ""), item.get("status", ""), item.get("request_date", "")
             ])
 
         table = Table(table_data)
         table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1A73E8')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ]))
 
         elements.append(table)
+        elements.append(Spacer(1, 20))
+
+        # Notes and Signature
+        notes = "\n".join([f"WO {item.get('id')}: {item.get('description', '')}" for item in data if item.get('description')])
+        if notes:
+            elements.append(Paragraph("Notes:", styles['Heading4']))
+            elements.append(Paragraph(notes, styles['Normal']))
+            elements.append(Spacer(1, 10))
+        elements.append(Paragraph("Signature: ___________________________", styles['Normal']))
+        doc.build(elements)
+
+
+# ==================== SPARE PARTS EXPORT ====================
+
+class SparePartsExportDialog(BaseExportDialog):
+    """Dialog for exporting spare parts inventory"""
+
+    def __init__(self, parent, parts_list):
+        self.parts_list = parts_list
+        super().__init__(parent, "📤 خروجی قطعات یدکی")
+        self._build_ui()
+
+    def _build_ui(self):
+        main_frame = tk.Frame(self, bg=BG)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        tk.Label(main_frame, text="🔧 خروجی قطعات یدکی",
+                 font=("Tahoma", 16, "bold"), bg=BG, fg=PRIMARY).pack(pady=(0, 20))
+
+        # Export type
+        type_frame = tk.LabelFrame(main_frame, text="نوع خروجی",
+                                   font=("Tahoma", 11, "bold"),
+                                   bg=BG, fg=TEXT, padx=15, pady=10)
+        type_frame.pack(fill="x", pady=(0, 15))
+
+        tk.Radiobutton(type_frame, text="📊 Excel", variable=self.export_type,
+                       value="excel", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
+        tk.Radiobutton(type_frame, text="📄 PDF", variable=self.export_type,
+                       value="pdf", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
+        tk.Radiobutton(type_frame, text="🔄 هر دو (Excel + PDF)", variable=self.export_type,
+                       value="both", bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
+
+        # Options
+        options_frame = tk.LabelFrame(main_frame, text="تنظیمات خروجی",
+                                      font=("Tahoma", 11, "bold"),
+                                      bg=BG, fg=TEXT, padx=15, pady=10)
+        options_frame.pack(fill="x", pady=(0, 15))
+
+        tk.Checkbutton(options_frame, text="شامل جزئیات", variable=self.include_details,
+                       bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
+        tk.Checkbutton(options_frame, text="شامل آمار", variable=self.include_stats,
+                       bg=BG, font=("Tahoma", 10)).pack(anchor="w", pady=2)
+
+        # Buttons
+        btn_frame = tk.Frame(main_frame, bg=BG)
+        btn_frame.pack(fill="x", pady=(10, 0))
+
+        tk.Button(btn_frame, text="انصراف", command=self.destroy,
+                  bg=BORDER, fg=TEXT, font=("Tahoma", 10, "bold"),
+                  relief="flat", cursor="hand2", padx=20, pady=8).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="خروجی گرفتن", command=self._export,
+                  bg=PRIMARY, fg=WHITE, font=("Tahoma", 10, "bold"),
+                  relief="flat", cursor="hand2", padx=20, pady=8).pack(side="right", padx=5)
+
+    def _export(self):
+        data = self.parts_list
+        if not data:
+            messagebox.showwarning("هشدار", "داده‌ای برای خروجی وجود ندارد!")
+            return
+
+        export_type = self.export_type.get()
+
+        try:
+            if export_type in ["excel", "both"]:
+                self._export_to_excel(data, "spare_parts_export")
+            if export_type in ["pdf", "both"]:
+                self._export_to_pdf(data, "spare_parts_export")
+
+            messagebox.showinfo("موفق", "خروجی با موفقیت ذخیره شد!")
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در ایجاد خروجی: {str(e)}")
+
+    def _export_to_excel(self, data, filename_prefix):
+        filename = super()._export_to_excel(data, filename_prefix)
+        if not filename:
+            return
+
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            export_data = []
+            for part in data:
+                export_data.append({
+                    "شناسه": part.id,
+                    "شماره قطعه": part.part_number,
+                    "نام قطعه": part.name,
+                    "دسته‌بندی": part.category or "",
+                    "موجودی فعلی": part.current_stock,
+                    "حداقل موجودی": part.min_stock,
+                    "واحد": part.unit or "",
+                    "قیمت واحد": f"{part.unit_price:.2f}",
+                    "موقعیت": part.location or "",
+                    "تامین‌کننده": part.supplier or "",
+                    "توضیحات": part.description or "",
+                    "امضا": ""
+                })
+            df = pd.DataFrame(export_data)
+            df.to_excel(writer, sheet_name="قطعات یدکی", index=False)
+
+    def _export_to_pdf(self, data, filename_prefix):
+        filename = super()._export_to_pdf(data, filename_prefix)
+        if not filename:
+            return
+
+        doc = SimpleDocTemplate(filename, pagesize=A4)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        elements.append(Paragraph("Spare Parts Report", styles['Title']))
+        elements.append(Spacer(1, 20))
+
+        table_data = [["Part Number", "Name", "Category", "Stock", "Price"]]
+        for part in data[:20]:
+            table_data.append([
+                part.part_number, part.name, part.category or "",
+                str(part.current_stock), f"{part.unit_price:.2f}"
+            ])
+
+        table = Table(table_data)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+
+        elements.append(table)
+        elements.append(Spacer(1, 20))
+
+        # Notes and Signature
+        notes = "\n".join([f"{part.name}: {part.description or ''}" for part in data if part.description])
+        if notes:
+            elements.append(Paragraph("Notes:", styles['Heading4']))
+            elements.append(Paragraph(notes, styles['Normal']))
+            elements.append(Spacer(1, 10))
+        elements.append(Paragraph("Signature: ___________________________", styles['Normal']))
         doc.build(elements)
 
 
@@ -961,28 +1067,28 @@ class WorkOrderExportDialog(BaseExportDialog):
 def run_inspection_export(parent, service: InspectionService,
                           selected_inspection_id: Optional[int] = None,
                           selected_template=None):
-    """Run inspection export dialog"""
     inspection = None
     if selected_inspection_id:
         inspection = service.get_inspection(selected_inspection_id)
-
     dialog = InspectionExportDialog(parent, service, inspection, selected_template)
     parent.wait_window(dialog)
 
 
 def run_equipment_export(parent, equipment_list, selected_equipment=None):
-    """Run equipment export dialog"""
     dialog = EquipmentExportDialog(parent, equipment_list, selected_equipment)
     parent.wait_window(dialog)
 
 
 def run_pm_export(parent, pm_records, selected_pm=None):
-    """Run PM export dialog"""
     dialog = PMExportDialog(parent, pm_records, selected_pm)
     parent.wait_window(dialog)
 
-    
+
 def run_work_order_export(parent, wo_repo, selected_wo_id=None):
-    """Run work order export dialog"""
     dialog = WorkOrderExportDialog(parent, wo_repo, selected_wo_id)
+    parent.wait_window(dialog)
+
+
+def run_spare_parts_export(parent, parts_list):
+    dialog = SparePartsExportDialog(parent, parts_list)
     parent.wait_window(dialog)
