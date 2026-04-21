@@ -13,7 +13,7 @@ from database.models import (
     SparePart, SparePartTransaction, ProductionLog
 )
 from database.work_order import WorkOrder, WorkOrderType, WorkOrderStatus, WorkOrderPriority
-from auth.auth_manager import hash_password  # Import the standalone function
+from auth.auth_manager import AuthManager
 
 # ==================== Helper Functions ====================
 
@@ -27,6 +27,12 @@ def random_date(start: datetime, end: datetime) -> datetime:
 def random_choice_weighted(items, weights=None):
     """Pick random item with optional weights."""
     return random.choices(items, weights=weights, k=1)[0]
+
+
+def hash_password(password: str) -> str:
+    """Hash password using SHA256."""
+    import hashlib
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 # ==================== Seed Main ====================
@@ -51,7 +57,8 @@ def seed_all():
             is_active=True
         )
         session.add(admin)
-        users.append(admin)
+        session.flush()
+    users.append(admin)
 
     # Manager
     manager = session.query(User).filter(User.username == "manager").first()
@@ -64,7 +71,8 @@ def seed_all():
             is_active=True
         )
         session.add(manager)
-        users.append(manager)
+        session.flush()
+    users.append(manager)
 
     # Technicians
     tech_names = [
@@ -85,9 +93,11 @@ def seed_all():
                 is_active=True
             )
             session.add(tech)
-            users.append(tech)
+            session.flush()
+        users.append(tech)
 
     session.commit()
+    print(f"    Created {len(users)} users")
 
     # ========== 2. Equipment ==========
     print("  🔧 Creating equipment...")
@@ -128,9 +138,16 @@ def seed_all():
                 notes="تجهیز اصلی خط تولید"
             )
             session.add(eq)
-            equipment_list.append(eq)
+            session.flush()
+        equipment_list.append(eq)
 
     session.commit()
+    print(f"    Created {len(equipment_list)} equipment")
+
+    if not equipment_list:
+        print("❌ No equipment created. Aborting seed.")
+        session.close()
+        return
 
     # ========== 3. PM Schedules ==========
     print("  📅 Creating PM schedules...")
@@ -145,6 +162,10 @@ def seed_all():
         (PMFrequency.ANNUAL.value, 365),
     ]
 
+    tech_ids = [u.id for u in users if u.role == UserRole.TECHNICIAN.value]
+    if not tech_ids:
+        tech_ids = [u.id for u in users]  # fallback
+
     for eq in equipment_list:
         # Create 1-3 PM schedules per equipment
         for _ in range(random.randint(1, 3)):
@@ -154,7 +175,7 @@ def seed_all():
             pm = PMSchedule(
                 title=f"PM برنامه {freq} - {eq.name}",
                 equipment_id=eq.id,
-                technician_id=random.choice([u.id for u in users if u.role == UserRole.TECHNICIAN.value]),
+                technician_id=random.choice(tech_ids),
                 frequency=freq,
                 interval_days=interval,
                 last_done=last_done,
@@ -168,6 +189,7 @@ def seed_all():
             pm_list.append(pm)
 
     session.commit()
+    print(f"    Created {len(pm_list)} PM schedules")
 
     # ========== 4. Inspection Templates ==========
     print("  🔍 Creating inspection templates...")
@@ -202,6 +224,7 @@ def seed_all():
         template_list.append(template)
 
     session.commit()
+    print(f"    Created {len(template_list)} inspection templates")
 
     # ========== 5. Spare Parts ==========
     print("  🔧 Creating spare parts...")
@@ -237,12 +260,15 @@ def seed_all():
                 notes="موجودی اولیه"
             )
             session.add(part)
-            part_list.append(part)
+            session.flush()
+        part_list.append(part)
 
     session.commit()
+    print(f"    Created {len(part_list)} spare parts")
 
     # ========== 6. Stock Transactions ==========
     print("  📦 Creating stock transactions...")
+    trans_count = 0
     for part in part_list:
         # Create 3-8 transactions per part
         for _ in range(random.randint(3, 8)):
@@ -264,8 +290,9 @@ def seed_all():
                 created_at=random_date(datetime(2023, 1, 1), datetime.now())
             )
             session.add(trans)
-
+            trans_count += 1
     session.commit()
+    print(f"    Created {trans_count} stock transactions")
 
     # ========== 7. Work Orders ==========
     print("  📝 Creating work orders...")
@@ -294,22 +321,23 @@ def seed_all():
             type=wo_type,
             status=status,
             priority=random.choice(priorities),
-            technician_id=random.choice([u.id for u in users if u.role == UserRole.TECHNICIAN.value]),
+            technician_id=random.choice(tech_ids),
             scheduled_date=scheduled,
             start_time=start_time,
             end_time=end_time,
             description=f"کار {wo_type.name} روی تجهیز {eq.name}",
-            parts_used=f"قطعات: {random.choice([p.name for p in part_list[:3]])}",
+            parts_used=f"قطعات: {random.choice([p.name for p in part_list[:3]])}" if part_list else "",
             created_at=random_date(datetime(2023, 1, 1), datetime.now())
         )
         session.add(wo)
         work_order_list.append(wo)
 
     session.commit()
+    print(f"    Created {len(work_order_list)} work orders")
 
     # ========== 8. Inspections (completed) ==========
     print("  🔎 Creating completed inspections...")
-    inspection_list = []
+    inspection_count = 0
 
     for template in template_list:
         # Create 2-5 inspections per template
@@ -332,6 +360,7 @@ def seed_all():
             )
             session.add(ins)
             session.flush()
+            inspection_count += 1
 
             # Add results for each checkpoint
             if status == InspectionStatus.COMPLETED.value:
@@ -347,9 +376,11 @@ def seed_all():
                     session.add(ir)
 
     session.commit()
+    print(f"    Created {inspection_count} completed inspections")
 
     # ========== 9. Production Logs (for OEE/MTBF) ==========
     print("  📊 Creating production logs...")
+    log_count = 0
     for eq in equipment_list:
         # Create logs for last 30 days
         for day in range(30):
@@ -368,8 +399,9 @@ def seed_all():
                 output_units=output
             )
             session.add(pl)
-
+            log_count += 1
     session.commit()
+    print(f"    Created {log_count} production logs")
 
     print("\n✅ Seeding completed successfully!")
     print(f"   Users: {len(users)}")
@@ -378,13 +410,14 @@ def seed_all():
     print(f"   Inspection Templates: {len(template_list)}")
     print(f"   Spare Parts: {len(part_list)}")
     print(f"   Work Orders: {len(work_order_list)}")
-    print(f"   Completed Inspections: {session.query(Inspection).count()}")
-    print(f"   Production Logs: {session.query(ProductionLog).count()}")
+    print(f"   Completed Inspections: {inspection_count}")
+    print(f"   Production Logs: {log_count}")
     session.close()
 
 
-# Backward compatibility for main.py
-seed_admin = seed_all
+def seed_admin():
+    """Backward compatibility for main.py"""
+    seed_all()
 
 
 if __name__ == "__main__":
