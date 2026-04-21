@@ -1,406 +1,623 @@
 # views/inspection_view.py
+"""
+Inspection View - Main Inspection Management Panel
+Consistent with existing app views (equipment_view, pm_view, work_order_view).
+"""
+from typing import Optional, List
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional
 from datetime import datetime
 
-from database.db import SessionLocal
-from database.inspection_repository import InspectionRepository
 from services.inspection_service import InspectionService
-from views.inspection_dialog  import (
+from views.inspection_dialog import (
     TemplateDialog,
     InspectionStartDialog,
     InspectionExecuteDialog,
     InspectionDetailDialog,
 )
+from database.models import Inspection, InspectionTemplate
 
-# ─────────────────────────── Theme ───────────────────────────
-BG      = "#F0F4F8"
-WHITE   = "#FFFFFF"
+# ─────────────────────────── Theme ──────────────────────────────────────────
+BG = "#F0F4F8"
+WHITE = "#FFFFFF"
 PRIMARY = "#1A73E8"
-DANGER  = "#DC3545"
+DANGER = "#DC3545"
 SUCCESS = "#28A745"
-TEXT    = "#202124"
-SUBTLE  = "#5F6368"
-BORDER  = "#DADCE0"
+WARNING = "#F29900"
+TEXT = "#202124"
+SUBTLE = "#5F6368"
+BORDER = "#DADCE0"
+RED_BG = "#FCE8E6"
+GREEN_BG = "#E6F4EA"
+YELLOW_BG = "#FFF8E1"
 
-FONT_TITLE  = ("Tahoma", 14, "bold")
-FONT_LABEL  = ("Tahoma", 10, "bold")
-FONT_INPUT  = ("Tahoma", 10)
-FONT_SMALL  = ("Tahoma", 9)
+FONT_TITLE = ("Tahoma", 14, "bold")
+FONT_LABEL = ("Tahoma", 10, "bold")
+FONT_INPUT = ("Tahoma", 10)
+FONT_SMALL = ("Tahoma", 9)
+FONT_STAT = ("Tahoma", 18, "bold")
 
 STATUS_FA = {
-    "in_progress": "🔄 در حال انجام",
-    "completed":   "✅ تکمیل شده",
-    "cancelled":   "❌ لغو شده",
+    "in_progress": "در حال انجام",
+    "completed": "تکمیل شده",
+    "cancelled": "لغو شده",
+}
+
+STATUS_COLOR = {
+    "in_progress": WARNING,
+    "completed": SUCCESS,
+    "cancelled": SUBTLE,
 }
 
 RESULT_FA = {
-    "pass":    "✅ قبول",
-    "fail":    "❌ رد",
+    "pass": "✅ قبول",
+    "fail": "❌ رد",
     "partial": "⚠️ جزئی",
+    "": "—",
+}
+
+RESULT_TAG = {
+    "pass": "pass",
+    "fail": "fail",
+    "partial": "partial",
+    "": "none",
 }
 
 FREQ_FA = {
-    "daily":     "روزانه",
-    "weekly":    "هفتگی",
-    "monthly":   "ماهانه",
+    "daily": "روزانه",
+    "weekly": "هفتگی",
+    "monthly": "ماهانه",
     "quarterly": "سه‌ماهه",
-    "yearly":    "سالانه",
+    "yearly": "سالانه",
 }
 
 
 class InspectionView(tk.Frame):
-    """Main inspection management view with tabs"""
+    """Main inspection management panel embedded in MainView."""
 
-    def __init__(self, parent, current_user: dict):
+    def __init__(self, parent, service: InspectionService, current_user: dict):
         super().__init__(parent, bg=BG)
+        self.service = service
         self.current_user = current_user
-        self.db = SessionLocal()
-        self.repo = InspectionRepository()
-        self.service = InspectionService(self.db)
+        self._tab = "inspections"  # "inspections" | "templates"
+
+        # Data storage
+        self._all_inspections: List[Inspection] = []
+        self._all_templates: List[InspectionTemplate] = []
 
         self._build_ui()
-        self._load_data()
+        self._load()
+
+    # ══════════════════════════ UI BUILD ════════════════════════════════════
 
     def _build_ui(self):
-        # Header
-        header = tk.Frame(self, bg=PRIMARY, height=70)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        tk.Label(header, text="🔍  مدیریت بازرسی‌ها", font=FONT_TITLE,
-                 bg=PRIMARY, fg=WHITE).pack(side="right", padx=20, pady=20)
-
-        # Stats bar
-        stats_frame = tk.Frame(self, bg=WHITE, height=80)
-        stats_frame.pack(fill="x", padx=20, pady=(15, 10))
-        stats_frame.pack_propagate(False)
-
-        self.stat_labels = {}
-        for key, label in [
-            ("total", "کل بازرسی‌ها"),
-            ("in_progress", "در حال انجام"),
-            ("completed", "تکمیل شده"),
-            ("cancelled", "لغو شده"),
-        ]:
-            card = tk.Frame(stats_frame, bg=WHITE)
-            card.pack(side="right", padx=15, pady=10)
-            tk.Label(card, text=label, font=FONT_SMALL,
-                     bg=WHITE, fg=SUBTLE).pack()
-            lbl = tk.Label(card, text="0", font=("Tahoma", 18, "bold"),
-                          bg=WHITE, fg=PRIMARY)
-            lbl.pack()
-            self.stat_labels[key] = lbl
-
-        # Notebook (tabs)
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill="both", expand=True, padx=20, pady=(0, 15))
-
-        # Tab 1: Templates
-        self.templates_tab = tk.Frame(self.notebook, bg=BG)
-        self.notebook.add(self.templates_tab, text="  قالب‌های بازرسی  ")
-        self._build_templates_tab()
-
-        # Tab 2: Inspections
-        self.inspections_tab = tk.Frame(self.notebook, bg=BG)
-        self.notebook.add(self.inspections_tab, text="  بازرسی‌ها  ")
+        self._build_header()
+        self._build_stats_bar()
+        self._build_tab_bar()
         self._build_inspections_tab()
+        self._build_templates_tab()
+        self._show_tab("inspections")
 
-    # ═══════════════════════════ TEMPLATES TAB ═══════════════════════════
+    # ── Header ──────────────────────────────────────────────────────────────
 
-    def _build_templates_tab(self):
-        # Toolbar
-        toolbar = tk.Frame(self.templates_tab, bg=BG)
-        toolbar.pack(fill="x", pady=(10, 5))
+    def _build_header(self):
+        hdr = tk.Frame(self, bg=PRIMARY, height=60)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
 
-        tk.Button(toolbar, text="➕ قالب جدید", font=FONT_LABEL,
-                  bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._new_template).pack(side="right", padx=5)
-        tk.Button(toolbar, text="✏️ ویرایش", font=FONT_INPUT,
-                  bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._edit_template).pack(side="right", padx=5)
-        tk.Button(toolbar, text="🗑️ حذف", font=FONT_INPUT,
-                  bg=DANGER, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._delete_template).pack(side="right", padx=5)
-        tk.Button(toolbar, text="🔄 بروزرسانی", font=FONT_INPUT,
-                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._load_templates).pack(side="left", padx=5)
+        tk.Label(hdr, text="🔍  مدیریت بازرسی‌ها",
+                 font=FONT_TITLE, bg=PRIMARY, fg=WHITE).pack(
+            side="right", padx=20, pady=14)
 
-        # Search
-        search_frame = tk.Frame(self.templates_tab, bg=BG)
-        search_frame.pack(fill="x", pady=5)
+        btn_frame = tk.Frame(hdr, bg=PRIMARY)
+        btn_frame.pack(side="left", padx=16, pady=10)
 
-        tk.Label(search_frame, text="جستجو:", font=FONT_INPUT,
-                 bg=BG, fg=TEXT).pack(side="right", padx=5)
-        self.template_search_var = tk.StringVar()
-        self.template_search_var.trace("w", lambda *_: self._filter_templates())
-        tk.Entry(search_frame, textvariable=self.template_search_var,
-                 font=FONT_INPUT, width=30, relief="solid", bd=1).pack(side="right", padx=5)
+        tk.Button(btn_frame, text="➕ بازرسی جدید",
+                  font=FONT_LABEL, bg=WHITE, fg=PRIMARY,
+                  relief="flat", cursor="hand2", padx=12, pady=6,
+                  command=self._start_inspection).pack(side="left", padx=4)
 
-        # Treeview
-        tree_frame = tk.Frame(self.templates_tab, bg=WHITE)
-        tree_frame.pack(fill="both", expand=True, pady=5)
+        tk.Button(btn_frame, text="🔄 بروزرسانی",
+                  font=FONT_INPUT, bg=PRIMARY, fg=WHITE,
+                  relief="flat", cursor="hand2", padx=12, pady=6,
+                  command=self._load).pack(side="left", padx=4)
 
-        cols = ("id", "name", "equipment", "frequency", "checkpoints", "duration", "status")
-        self.templates_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=12)
+        tk.Button(btn_frame, text="📤 خروجی Excel / PDF",
+                  font=FONT_INPUT, bg="#34A853", fg=WHITE,
+                  relief="flat", cursor="hand2", padx=12, pady=6,
+                  command=self._export).pack(side="left", padx=4)
 
-        self.templates_tree.heading("id",          text="شناسه")
-        self.templates_tree.heading("name",        text="نام قالب")
-        self.templates_tree.heading("equipment",   text="تجهیز")
-        self.templates_tree.heading("frequency",   text="دوره تناوب")
-        self.templates_tree.heading("checkpoints", text="تعداد چک‌پوینت")
-        self.templates_tree.heading("duration",    text="مدت (دقیقه)")
-        self.templates_tree.heading("status",      text="وضعیت")
+    # ── Stats bar ───────────────────────────────────────────────────────────
 
-        self.templates_tree.column("id",          width=60,  anchor="center")
-        self.templates_tree.column("name",        width=220, anchor="w")
-        self.templates_tree.column("equipment",   width=150, anchor="w")
-        self.templates_tree.column("frequency",   width=100, anchor="center")
-        self.templates_tree.column("checkpoints", width=100, anchor="center")
-        self.templates_tree.column("duration",    width=90,  anchor="center")
-        self.templates_tree.column("status",      width=90,  anchor="center")
+    def _build_stats_bar(self):
+        self._stats_frame = tk.Frame(self, bg=BG)
+        self._stats_frame.pack(fill="x", padx=20, pady=(12, 0))
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.templates_tree.yview)
-        self.templates_tree.configure(yscrollcommand=vsb.set)
+    def _refresh_stats(self, stats: dict):
+        for w in self._stats_frame.winfo_children():
+            w.destroy()
 
-        self.templates_tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
+        cards = [
+            ("📋", "کل بازرسی‌ها", stats["total"], WHITE, PRIMARY),
+            ("🔄", "در حال انجام", stats["in_progress"], YELLOW_BG, WARNING),
+            ("✅", "قبول شده", stats["passed"], GREEN_BG, SUCCESS),
+            ("❌", "رد شده", stats["failed"], RED_BG, DANGER),
+            ("📊", "نرخ قبولی", f"{stats['pass_rate']:.1f}%", WHITE, PRIMARY),
+        ]
+        for icon, label, value, bg, fg in cards:
+            card = tk.Frame(self._stats_frame, bg=bg,
+                            highlightbackground=BORDER, highlightthickness=1)
+            card.pack(side="right", padx=5, ipadx=16, ipady=8)
+            tk.Label(card, text=f"{icon}  {label}",
+                     font=FONT_SMALL, bg=bg, fg=SUBTLE).pack()
+            tk.Label(card, text=str(value),
+                     font=FONT_STAT, bg=bg, fg=fg).pack()
 
-        self.templates_tree.bind("<Double-1>", lambda e: self._edit_template())
+    # ── Tab bar ─────────────────────────────────────────────────────────────
 
-    def _load_templates(self):
-        self.templates_tree.delete(*self.templates_tree.get_children())
-        templates = self.repo.get_all_templates()
+    def _build_tab_bar(self):
+        bar = tk.Frame(self, bg=BG)
+        bar.pack(fill="x", padx=20, pady=(10, 0))
 
-        for t in templates:
-            status = "✅ فعال" if t["is_active"] else "❌ غیرفعال"
-            freq = FREQ_FA.get(t["frequency"], t["frequency"])
+        self._tab_btns = {}
+        for key, label in [("inspections", "📋 بازرسی‌ها"), ("templates", "📄 قالب‌ها")]:
+            btn = tk.Button(bar, text=label, font=FONT_LABEL,
+                            relief="flat", cursor="hand2",
+                            padx=18, pady=7,
+                            command=lambda k=key: self._show_tab(k))
+            btn.pack(side="right", padx=2)
+            self._tab_btns[key] = btn
 
-            # Count checkpoints
-            cp_count = len(self.repo.get_checkpoints_by_template(t["id"]))
-
-            self.templates_tree.insert("", "end", values=(
-                t["id"],
-                t["name"],
-                t["equipment_name"],
-                freq,
-                cp_count,
-                t["estimated_duration_minutes"],
-                status,
-            ))
-
-    def _filter_templates(self):
-        search = self.template_search_var.get().strip().lower()
-        for item in self.templates_tree.get_children():
-            values = self.templates_tree.item(item)["values"]
-            name = str(values[1]).lower()
-            if search in name:
-                self.templates_tree.reattach(item, "", "end")
+    def _show_tab(self, tab: str):
+        self._tab = tab
+        for key, btn in self._tab_btns.items():
+            if key == tab:
+                btn.config(bg=PRIMARY, fg=WHITE)
             else:
-                self.templates_tree.detach(item)
+                btn.config(bg=BORDER, fg=TEXT)
 
-    def _new_template(self):
-        dlg = TemplateDialog(self, self.db, self.service)
-        self.wait_window(dlg)
-        if dlg.result:
-            self._load_templates()
-
-    def _edit_template(self):
-        sel = self.templates_tree.selection()
-        if not sel:
-            messagebox.showwarning("انتخاب", "لطفاً یک قالب انتخاب کنید.", parent=self)
-            return
-
-        template_id = int(self.templates_tree.item(sel[0])["values"][0])
-        dlg = TemplateDialog(self, self.db, self.service, template_id)
-        self.wait_window(dlg)
-        if dlg.result:
-            self._load_templates()
-
-    def _delete_template(self):
-        sel = self.templates_tree.selection()
-        if not sel:
-            messagebox.showwarning("انتخاب", "لطفاً یک قالب انتخاب کنید.", parent=self)
-            return
-
-        if not messagebox.askyesno("حذف", "آیا از حذف این قالب مطمئن هستید؟", parent=self):
-            return
-
-        template_id = int(self.templates_tree.item(sel[0])["values"][0])
-        success, msg = self.repo.delete_template(template_id)
-
-        if success:
-            messagebox.showinfo("موفق", msg, parent=self)
-            self._load_templates()
+        if tab == "inspections":
+            self._inspections_frame.pack(fill="both", expand=True, padx=20, pady=8)
+            self._templates_frame.pack_forget()
+            self._load_inspections()
         else:
-            messagebox.showerror("خطا", msg, parent=self)
+            self._templates_frame.pack(fill="both", expand=True, padx=20, pady=8)
+            self._inspections_frame.pack_forget()
+            self._load_templates()
 
-    # ═══════════════════════════ INSPECTIONS TAB ═══════════════════════════
+    # ── Inspections tab ─────────────────────────────────────────────────────
 
     def _build_inspections_tab(self):
-        # Toolbar
-        toolbar = tk.Frame(self.inspections_tab, bg=BG)
-        toolbar.pack(fill="x", pady=(10, 5))
+        self._inspections_frame = tk.Frame(self, bg=BG)
 
-        tk.Button(toolbar, text="🔍 بازرسی جدید", font=FONT_LABEL,
-                  bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._start_inspection).pack(side="right", padx=5)
-        tk.Button(toolbar, text="▶️ ادامه بازرسی", font=FONT_INPUT,
-                  bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._continue_inspection).pack(side="right", padx=5)
-        tk.Button(toolbar, text="📋 جزئیات", font=FONT_INPUT,
-                  bg="#6C757D", fg=WHITE, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._view_inspection).pack(side="right", padx=5)
-        tk.Button(toolbar, text="🔄 بروزرسانی", font=FONT_INPUT,
-                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
-                  padx=15, pady=7, command=self._load_inspections).pack(side="left", padx=5)
+        # Filter toolbar
+        toolbar = tk.Frame(self._inspections_frame, bg=BG)
+        toolbar.pack(fill="x", pady=(0, 6))
 
-        # Filter
-        filter_frame = tk.Frame(self.inspections_tab, bg=BG)
-        filter_frame.pack(fill="x", pady=5)
-
-        tk.Label(filter_frame, text="وضعیت:", font=FONT_INPUT,
-                 bg=BG, fg=TEXT).pack(side="right", padx=5)
-        self.status_filter_var = tk.StringVar(value="همه")
-        status_combo = ttk.Combobox(filter_frame, textvariable=self.status_filter_var,
-                                    values=["همه", "در حال انجام", "تکمیل شده", "لغو شده"],
-                                    state="readonly", width=15, font=FONT_INPUT)
+        tk.Label(toolbar, text="فیلتر وضعیت:", font=FONT_INPUT,
+                 bg=BG, fg=TEXT).pack(side="right", padx=(0, 5))
+        self._status_filter = tk.StringVar(value="همه")
+        status_combo = ttk.Combobox(
+            toolbar, textvariable=self._status_filter,
+            values=["همه", "در حال انجام", "تکمیل شده", "لغو شده"],
+            state="readonly", width=14, font=FONT_INPUT,
+        )
         status_combo.pack(side="right", padx=5)
-        status_combo.bind("<<ComboboxSelected>>", lambda e: self._filter_inspections())
+        status_combo.bind("<<ComboboxSelected>>", lambda e: self._apply_filter())
 
-        tk.Label(filter_frame, text="جستجو:", font=FONT_INPUT,
-                 bg=BG, fg=TEXT).pack(side="right", padx=(20, 5))
-        self.inspection_search_var = tk.StringVar()
-        self.inspection_search_var.trace("w", lambda *_: self._filter_inspections())
-        tk.Entry(filter_frame, textvariable=self.inspection_search_var,
-                 font=FONT_INPUT, width=25, relief="solid", bd=1).pack(side="right", padx=5)
+        # Table
+        container = tk.Frame(self._inspections_frame, bg=WHITE,
+                             highlightbackground=BORDER, highlightthickness=1)
+        container.pack(fill="both", expand=True)
 
-        # Treeview
-        tree_frame = tk.Frame(self.inspections_tab, bg=WHITE)
-        tree_frame.pack(fill="both", expand=True, pady=5)
+        cols = ("id", "template", "equipment", "inspector",
+                "status", "result", "started", "completed")
+        self._ins_tree = ttk.Treeview(container, columns=cols,
+                                      show="headings", height=16)
 
-        cols = ("id", "template", "equipment", "inspector", "started", "completed", "status", "result")
-        self.inspections_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=12)
+        headers = [
+            ("id", "شناسه", 60, "center"),
+            ("template", "قالب", 180, "w"),
+            ("equipment", "تجهیز", 140, "w"),
+            ("inspector", "بازرس", 120, "center"),
+            ("status", "وضعیت", 110, "center"),
+            ("result", "نتیجه", 100, "center"),
+            ("started", "شروع", 130, "center"),
+            ("completed", "پایان", 130, "center"),
+        ]
+        for col, text, width, anchor in headers:
+            self._ins_tree.heading(col, text=text)
+            self._ins_tree.column(col, width=width, anchor=anchor)
 
-        self.inspections_tree.heading("id",        text="شناسه")
-        self.inspections_tree.heading("template",  text="قالب")
-        self.inspections_tree.heading("equipment", text="تجهیز")
-        self.inspections_tree.heading("inspector", text="بازرس")
-        self.inspections_tree.heading("started",   text="شروع")
-        self.inspections_tree.heading("completed", text="اتمام")
-        self.inspections_tree.heading("status",    text="وضعیت")
-        self.inspections_tree.heading("result",    text="نتیجه")
+        vsb = ttk.Scrollbar(container, orient="vertical",
+                            command=self._ins_tree.yview)
+        self._ins_tree.configure(yscrollcommand=vsb.set)
+        self._ins_tree.pack(side="right", fill="both", expand=True)
+        vsb.pack(side="left", fill="y")
 
-        self.inspections_tree.column("id",        width=60,  anchor="center")
-        self.inspections_tree.column("template",  width=180, anchor="w")
-        self.inspections_tree.column("equipment", width=140, anchor="w")
-        self.inspections_tree.column("inspector", width=120, anchor="w")
-        self.inspections_tree.column("started",   width=130, anchor="center")
-        self.inspections_tree.column("completed", width=130, anchor="center")
-        self.inspections_tree.column("status",    width=100, anchor="center")
-        self.inspections_tree.column("result",    width=90,  anchor="center")
+        # Tags
+        self._ins_tree.tag_configure("pass", background=GREEN_BG)
+        self._ins_tree.tag_configure("fail", background=RED_BG)
+        self._ins_tree.tag_configure("partial", background=YELLOW_BG)
+        self._ins_tree.tag_configure("none", background=WHITE)
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.inspections_tree.yview)
-        self.inspections_tree.configure(yscrollcommand=vsb.set)
+        # Context menu
+        self._ins_tree.bind("<Button-3>", self._ins_context_menu)
+        self._ins_tree.bind("<Double-1>", lambda e: self._view_inspection())
+        self._ins_ctx = tk.Menu(self, tearoff=0, font=FONT_INPUT)
+        self._ins_ctx.add_command(label="▶️  ادامه بازرسی", command=self._continue_inspection)
+        self._ins_ctx.add_command(label="🔍  مشاهده جزئیات", command=self._view_inspection)
+        self._ins_ctx.add_separator()
+        self._ins_ctx.add_command(label="🗑️  حذف", command=self._delete_inspection)
 
-        self.inspections_tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
+    # ── Templates tab ───────────────────────────────────────────────────────
 
-        self.inspections_tree.bind("<Double-1>", lambda e: self._view_inspection())
+    def _build_templates_tab(self):
+        self._templates_frame = tk.Frame(self, bg=BG)
+
+        # Toolbar
+        tb = tk.Frame(self._templates_frame, bg=BG)
+        tb.pack(fill="x", pady=(0, 6))
+        tk.Button(tb, text="➕ قالب جدید", font=FONT_LABEL,
+                  bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
+                  padx=12, pady=6, command=self._add_template).pack(side="right", padx=4)
+        tk.Button(tb, text="✏️ ویرایش", font=FONT_INPUT,
+                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
+                  padx=12, pady=6, command=self._edit_template).pack(side="right", padx=4)
+        tk.Button(tb, text="🔁 فعال/غیرفعال", font=FONT_INPUT,
+                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
+                  padx=12, pady=6, command=self._toggle_template).pack(side="right", padx=4)
+        tk.Button(tb, text="🗑️ حذف", font=FONT_INPUT,
+                  bg=DANGER, fg=WHITE, relief="flat", cursor="hand2",
+                  padx=12, pady=6, command=self._delete_template).pack(side="right", padx=4)
+
+        # Table
+        container = tk.Frame(self._templates_frame, bg=WHITE,
+                             highlightbackground=BORDER, highlightthickness=1)
+        container.pack(fill="both", expand=True)
+
+        cols = ("id", "name", "equipment", "frequency", "duration", "checkpoints", "active")
+        self._tpl_tree = ttk.Treeview(container, columns=cols,
+                                      show="headings", height=16)
+
+        headers = [
+            ("id", "شناسه", 60, "center"),
+            ("name", "نام قالب", 220, "w"),
+            ("equipment", "تجهیز", 150, "w"),
+            ("frequency", "دوره", 90, "center"),
+            ("duration", "مدت (دقیقه)", 100, "center"),
+            ("checkpoints", "تعداد چک‌پوینت", 120, "center"),
+            ("active", "وضعیت", 80, "center"),
+        ]
+        for col, text, width, anchor in headers:
+            self._tpl_tree.heading(col, text=text)
+            self._tpl_tree.column(col, width=width, anchor=anchor)
+
+        vsb = ttk.Scrollbar(container, orient="vertical",
+                            command=self._tpl_tree.yview)
+        self._tpl_tree.configure(yscrollcommand=vsb.set)
+        self._tpl_tree.pack(side="right", fill="both", expand=True)
+        vsb.pack(side="left", fill="y")
+
+        self._tpl_tree.tag_configure("active", background=GREEN_BG)
+        self._tpl_tree.tag_configure("inactive", background="#F5F5F5", foreground=SUBTLE)
+        self._tpl_tree.bind("<Double-1>", lambda e: self._edit_template())
+
+    # ══════════════════════════ DATA LOADING ════════════════════════════════
+
+    def _load(self):
+        """Load all data and refresh UI"""
+        self._load_inspections()
+        self._load_templates()
+        stats = self.service.get_stats()
+        self._refresh_stats(stats)
 
     def _load_inspections(self):
-        self.inspections_tree.delete(*self.inspections_tree.get_children())
-        inspections = self.repo.get_all_inspections()
+        """Load inspections from database"""
+        try:
+            self._all_inspections = self.service.get_all_inspections()
+            self._apply_filter()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در بارگذاری بازرسی‌ها: {str(e)}")
+            self._all_inspections = []
 
-        for ins in inspections:
-            status = STATUS_FA.get(ins["status"], ins["status"])
-            result = RESULT_FA.get(ins["overall_result"], "—") if ins["overall_result"] else "—"
+    def _load_templates(self):
+        """Load templates from database"""
+        try:
+            self._all_templates = self.service.get_all_templates()
+            self._populate_templates()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در بارگذاری قالب‌ها: {str(e)}")
+            self._all_templates = []
 
-            self.inspections_tree.insert("", "end", values=(
-                ins["id"],
-                ins["template_name"],
-                ins["equipment_name"],
-                ins["inspector_name"],
-                ins["started_at"],
-                ins["completed_at"] or "—",
-                status,
-                result,
-            ))
-
-    def _filter_inspections(self):
-        search = self.inspection_search_var.get().strip().lower()
-        status_filter = self.status_filter_var.get()
-
+    def _apply_filter(self):
+        """Apply status filter to inspections"""
+        status_fa = self._status_filter.get()
         status_map = {
             "در حال انجام": "in_progress",
             "تکمیل شده": "completed",
             "لغو شده": "cancelled",
         }
+        status_en = status_map.get(status_fa)
 
-        for item in self.inspections_tree.get_children():
-            values = self.inspections_tree.item(item)["values"]
-            template = str(values[1]).lower()
-            equipment = str(values[2]).lower()
-            status = str(values[6])
+        filtered = [
+            ins for ins in self._all_inspections
+            if status_en is None or ins.status == status_en
+        ]
+        self._populate_inspections(filtered)
 
-            match_search = search in template or search in equipment
-            match_status = (status_filter == "همه" or
-                           status == STATUS_FA.get(status_map.get(status_filter, ""), ""))
+    def _populate_inspections(self, inspections: List[Inspection]):
+        """Populate inspections treeview with model objects"""
+        self._ins_tree.delete(*self._ins_tree.get_children())
 
-            if match_search and match_status:
-                self.inspections_tree.reattach(item, "", "end")
-            else:
-                self.inspections_tree.detach(item)
+        for ins in inspections:
+            # Access attributes with dot notation
+            status_text = STATUS_FA.get(ins.status, ins.status)
+            result_text = RESULT_FA.get(ins.overall_result or "", ins.overall_result or "")
+            tag = RESULT_TAG.get(ins.overall_result or "", "none")
+
+            # Get related names (handle potential None relationships)
+            template_name = ins.template.name if ins.template and hasattr(ins.template, 'name') else "—"
+            equipment_name = ins.equipment.name if ins.equipment and hasattr(ins.equipment, 'name') else "—"
+            inspector_name = ins.inspector.username if ins.inspector and hasattr(ins.inspector, 'username') else "—"
+
+            # Format dates
+            started_at = ins.started_at.strftime("%Y-%m-%d %H:%M") if ins.started_at else "—"
+            completed_at = ins.completed_at.strftime("%Y-%m-%d %H:%M") if ins.completed_at else "—"
+
+            self._ins_tree.insert("", "end", iid=str(ins.id), tags=(tag,),
+                                  values=(
+                                      ins.id,
+                                      template_name,
+                                      equipment_name,
+                                      inspector_name,
+                                      status_text,
+                                      result_text,
+                                      started_at,
+                                      completed_at,
+                                  ))
+
+    def _populate_templates(self):
+        """Populate templates treeview with model objects"""
+        self._tpl_tree.delete(*self._tpl_tree.get_children())
+
+        for t in self._all_templates:
+            tag = "active" if t.is_active else "inactive"
+            active_text = "✅ فعال" if t.is_active else "❌ غیرفعال"
+
+            # Access equipment name through relationship
+            equipment_name = t.equipment.name if t.equipment and hasattr(t.equipment, 'name') else "—"
+
+            # Get checkpoint count
+            checkpoint_count = len(t.checkpoints) if hasattr(t, 'checkpoints') and t.checkpoints else 0
+
+            self._tpl_tree.insert("", "end", iid=str(t.id), tags=(tag,),
+                                  values=(
+                                      t.id,
+                                      t.name,
+                                      equipment_name,
+                                      FREQ_FA.get(t.frequency, t.frequency or "—"),
+                                      t.estimated_duration_minutes or "—",
+                                      checkpoint_count,
+                                      active_text,
+                                  ))
+
+    # ══════════════════════════ ACTIONS — INSPECTIONS ═══════════════════════
+
+    def _export(self):
+        """Export inspections to Excel/PDF"""
+        try:
+            from views.export_dialog import run_inspection_export
+            selected_ins_id = self._selected_inspection_id() if self._ins_tree.selection() else None
+            selected_template = None
+            if self._tpl_tree.selection():
+                tpl_id = self._selected_template_id()
+                if tpl_id:
+                    selected_template = self.service.get_template(tpl_id)
+            run_inspection_export(
+                self,
+                self.service,
+                selected_inspection_id=selected_ins_id,
+                selected_template=selected_template,
+            )
+        except ImportError:
+            messagebox.showwarning("اطلاع", "ماژول خروجی در دسترس نیست")
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در خروجی گرفتن: {str(e)}")
+
+    def _selected_inspection_id(self) -> Optional[int]:
+        """Get selected inspection ID from treeview"""
+        sel = self._ins_tree.selection()
+        if not sel:
+            messagebox.showwarning("انتخاب", "لطفاً یک بازرسی انتخاب کنید.")
+            return None
+        try:
+            return int(sel[0])
+        except ValueError:
+            messagebox.showerror("خطا", "شناسه بازرسی نامعتبر است")
+            return None
 
     def _start_inspection(self):
-        dlg = InspectionStartDialog(self, self.db, self.service, self.current_user)
-        self.wait_window(dlg)
-        if dlg.result:
-            self._load_inspections()
-            self._load_stats()
+        """Start a new inspection"""
+        try:
+            dlg = InspectionStartDialog(self, self.service, self.current_user)
+            self.wait_window(dlg)
+            if dlg.result:
+                self._load()
+                # Automatically open execute dialog for the new inspection
+                dlg2 = InspectionExecuteDialog(self, self.service, dlg.result)
+                self.wait_window(dlg2)
+                self._load()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در شروع بازرسی: {str(e)}")
 
     def _continue_inspection(self):
-        sel = self.inspections_tree.selection()
-        if not sel:
-            messagebox.showwarning("انتخاب", "لطفاً یک بازرسی انتخاب کنید.", parent=self)
+        """Continue an in-progress inspection"""
+        ins_id = self._selected_inspection_id()
+        if not ins_id:
             return
 
-        values = self.inspections_tree.item(sel[0])["values"]
-        inspection_id = int(values[0])
-        status = values[6]
-
-        if "تکمیل" in status or "لغو" in status:
-            messagebox.showwarning("هشدار", "این بازرسی قابل ادامه نیست.", parent=self)
+        # Find the inspection in our loaded data
+        ins = next((i for i in self._all_inspections if i.id == ins_id), None)
+        if not ins:
+            messagebox.showerror("خطا", "بازرسی مورد نظر یافت نشد")
             return
 
-        dlg = InspectionExecuteDialog(self, self.db, self.service, inspection_id)
-        self.wait_window(dlg)
-        if dlg.result:
-            self._load_inspections()
-            self._load_stats()
+        if ins.status != "in_progress":
+            messagebox.showinfo("اطلاع", "این بازرسی قابل ادامه نیست.")
+            return
+
+        try:
+            dlg = InspectionExecuteDialog(self, self.service, ins_id)
+            self.wait_window(dlg)
+            self._load()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در ادامه بازرسی: {str(e)}")
 
     def _view_inspection(self):
-        sel = self.inspections_tree.selection()
-        if not sel:
-            messagebox.showwarning("انتخاب", "لطفاً یک بازرسی انتخاب کنید.", parent=self)
+        """View inspection details"""
+        ins_id = self._selected_inspection_id()
+        if not ins_id:
             return
 
-        inspection_id = int(self.inspections_tree.item(sel[0])["values"][0])
-        InspectionDetailDialog(self, self.db, self.service, inspection_id)
+        try:
+            dlg = InspectionDetailDialog(self, self.service, ins_id)
+            self.wait_window(dlg)
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در نمایش جزئیات: {str(e)}")
 
-    # ═══════════════════════════ DATA LOADING ═══════════════════════════
+    def _delete_inspection(self):
+        """Delete an inspection"""
+        ins_id = self._selected_inspection_id()
+        if not ins_id:
+            return
 
-    def _load_data(self):
-        self._load_templates()
-        self._load_inspections()
-        self._load_stats()
+        if not messagebox.askyesno("حذف",
+                                   "آیا از حذف این بازرسی مطمئن هستید؟\n"
+                                   "تمام نتایج آن نیز حذف خواهند شد."):
+            return
 
-    def _load_stats(self):
-        stats = self.repo.get_inspection_stats()
-        for key, lbl in self.stat_labels.items():
-            lbl.config(text=str(stats.get(key, 0)))
+        try:
+            # Note: You need to implement delete_inspection in your service
+            # For now, assuming it exists
+            if hasattr(self.service, 'delete_inspection'):
+                ok, msg = self.service.delete_inspection(ins_id)
+                if ok:
+                    messagebox.showinfo("موفق", msg)
+                    self._load()
+                else:
+                    messagebox.showerror("خطا", msg)
+            else:
+                messagebox.showwarning("اطلاع", "حذف بازرسی در این نسخه پشتیبانی نمی‌شود")
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در حذف بازرسی: {str(e)}")
 
-    def destroy(self):
-        self.db.close()
-        super().destroy()
+    def _ins_context_menu(self, event):
+        """Show context menu for inspections"""
+        row = self._ins_tree.identify_row(event.y)
+        if row:
+            self._ins_tree.selection_set(row)
+            self._ins_ctx.post(event.x_root, event.y_root)
+
+    # ══════════════════════════ ACTIONS — TEMPLATES ══════════════════════════
+
+    def _selected_template_id(self) -> Optional[int]:
+        """Get selected template ID from treeview"""
+        sel = self._tpl_tree.selection()
+        if not sel:
+            messagebox.showwarning("انتخاب", "لطفاً یک قالب انتخاب کنید.")
+            return None
+        try:
+            return int(sel[0])
+        except ValueError:
+            messagebox.showerror("خطا", "شناسه قالب نامعتبر است")
+            return None
+
+    def _add_template(self):
+        """Add a new template"""
+        try:
+            dlg = TemplateDialog(self, self.service)
+            self.wait_window(dlg)
+            if dlg.result:
+                self._load()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در افزودن قالب: {str(e)}")
+
+    def _edit_template(self):
+        """Edit an existing template"""
+        tpl_id = self._selected_template_id()
+        if not tpl_id:
+            return
+
+        try:
+            dlg = TemplateDialog(self, self.service, template_id=tpl_id)
+            self.wait_window(dlg)
+            if dlg.result:
+                self._load()
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در ویرایش قالب: {str(e)}")
+
+    def _toggle_template(self):
+        """Toggle template active status"""
+        tpl_id = self._selected_template_id()
+        if not tpl_id:
+            return
+
+        try:
+            if hasattr(self.service, 'toggle_template_active'):
+                ok, msg = self.service.toggle_template_active(tpl_id)
+                if ok:
+                    self._load()
+                else:
+                    messagebox.showerror("خطا", msg)
+            else:
+                # Fallback: update template directly
+                template = self.service.get_template(tpl_id)
+                if template:
+                    from schemas.inspection import InspectionTemplateUpdate
+                    update_data = InspectionTemplateUpdate(is_active=not template.is_active)
+                    self.service.update_template(tpl_id, update_data)
+                    self._load()
+                    messagebox.showinfo("موفق", "وضعیت قالب با موفقیت تغییر کرد")
+                else:
+                    messagebox.showerror("خطا", "قالب مورد نظر یافت نشد")
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در تغییر وضعیت قالب: {str(e)}")
+
+    def _delete_template(self):
+        """Delete a template"""
+        tpl_id = self._selected_template_id()
+        if not tpl_id:
+            return
+
+        # Check if template has associated inspections
+        template = self.service.get_template(tpl_id)
+        if template and hasattr(template, 'inspections') and template.inspections:
+            if not messagebox.askyesno("هشدار",
+                                       "این قالب دارای بازرسی‌های ثبت شده است.\n"
+                                       "حذف آن ممکن است باعث مشکلات یکپارچگی داده شود.\n"
+                                       "آیا مطمئن هستید؟"):
+                return
+
+        if not messagebox.askyesno("حذف",
+                                   "آیا از حذف این قالب مطمئن هستید؟\n"
+                                   "تمام چک‌پوینت‌های آن نیز حذف خواهند شد."):
+            return
+
+        try:
+            if hasattr(self.service, 'delete_template'):
+                ok, msg = self.service.delete_template(tpl_id)
+                if ok:
+                    messagebox.showinfo("موفق", msg)
+                    self._load()
+                else:
+                    messagebox.showerror("خطا", msg)
+            else:
+                # Fallback: delete using existing method
+                if self.service.delete_template(tpl_id):
+                    messagebox.showinfo("موفق", "قالب با موفقیت حذف شد")
+                    self._load()
+                else:
+                    messagebox.showerror("خطا", "خطا در حذف قالب")
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در حذف قالب: {str(e)}")

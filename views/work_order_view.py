@@ -5,7 +5,7 @@ from datetime import datetime
 from database.work_order_repository import WorkOrderRepository
 from database.work_order import WorkOrderStatus
 from views.work_order_dialog import WorkOrderDialog
-
+from views.export_dialog import run_work_order_export
 
 class WorkOrderView(tk.Frame):
     def __init__(self, parent, work_order_repo, current_user):
@@ -33,6 +33,9 @@ class WorkOrderView(tk.Frame):
                   cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
         tk.Button(btn_frame, text="🔄 بروزرسانی", command=self._load,
                   bg="#3498db", fg="white", font=("Tahoma", 10),
+                  cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="📤 خروجی Excel / PDF", command=self._export,
+                  bg="#34A853", fg="white", font=("Tahoma", 10),
                   cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
 
         # Filter Frame
@@ -139,6 +142,14 @@ class WorkOrderView(tk.Frame):
             messagebox.showwarning("هشدار", "لطفاً یک کار انتخاب کنید.")
             return None
         return int(self.tree.item(sel[0])["values"][0])
+
+    def _export(self):
+        from views.export_dialog import run_work_order_export
+        selected_id = None
+        sel = self.tree.selection()
+        if sel:
+            selected_id = int(self.tree.item(sel[0])["values"][0])
+        run_work_order_export(self, self.wo_repo, selected_wo_id=selected_id)
 
     def _add_work(self):
         dlg = WorkOrderDialog(self, self.wo_repo)

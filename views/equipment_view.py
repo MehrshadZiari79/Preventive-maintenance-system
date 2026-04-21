@@ -142,6 +142,11 @@ class EquipmentView(tk.Frame):
                       relief="flat", cursor="hand2", command=self._delete_equipment,
                       padx=15, pady=8).pack(side="right", padx=5)
 
+        tk.Button(header, text="📤 خروجی Excel / PDF", font=FONT_NORMAL,
+                  bg="#34A853", fg=WHITE, relief="flat", cursor="hand2",
+                  command=self._export, padx=15, pady=8).pack(side="left", padx=5)
+
+
     def _load_data(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -271,6 +276,13 @@ class EquipmentView(tk.Frame):
         status_dialog.transient(self)
         status_dialog.grab_set()
 
+    def _export(self):
+        from views.export_dialog import run_equipment_export
+        selected = self._get_selected_equipment()
+        # Build current visible list from tree
+        eq_list = self.equipment_repo.get_all_equipment()
+        run_equipment_export(self, eq_list, selected_equipment=selected)
+
     def _delete_equipment(self):
         equipment = self._get_selected_equipment()
         if not equipment:
@@ -289,4 +301,3 @@ class EquipmentView(tk.Frame):
                 messagebox.showinfo("موفق", msg, parent=self)
             else:
                 messagebox.showerror("خطا", msg, parent=self)
-

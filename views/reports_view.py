@@ -1,3 +1,4 @@
+
 # views/reports_view.py
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -11,6 +12,13 @@ import numpy as np
 from database.report_repository import ReportRepository
 from database.equipment_repository import EquipmentRepository
 
+# Add this Persian status mapping
+STATUS_FA = {
+    "operational": "عملیاتی",
+    "maintenance": "در تعمیر",
+    "breakdown": "خراب",
+    "inactive": "غیرفعال",
+}
 
 class ReportsView(ttk.Frame):
     def __init__(self, parent, current_user):

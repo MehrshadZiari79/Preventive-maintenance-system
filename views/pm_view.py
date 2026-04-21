@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 from services.pm_service import PMService
-
+from views.export_dialog import run_pm_export
 try:
     import jdatetime
     HAS_JDATETIME = True
@@ -89,6 +89,20 @@ class PMView(tk.Frame):
                   bg=WHITE, fg=HEADER_BG, relief="flat",
                   padx=14, pady=6, cursor="hand2",
                   command=self._generate_work_orders).pack(side="left", padx=8, pady=12)
+
+        tk.Button(hdr, text="📤  خروجی Excel / PDF", font=FONT_LABEL,
+                  bg="#34A853", fg=WHITE, relief="flat",
+                  padx=14, pady=6, cursor="hand2",
+                  command=self._export).pack(side="left", padx=8, pady=12)
+
+    def _export(self):
+        from views.export_dialog import run_pm_export
+        selected_pm = None
+        sel = self.tree.selection()
+        if sel:
+            sid = int(sel[0])
+            selected_pm = self.pm_repo.get_by_id(sid)
+        run_pm_export(self, self._all_records, selected_pm=selected_pm)
 
     def _generate_work_orders(self):
         """Generate work orders for all due PM schedules."""

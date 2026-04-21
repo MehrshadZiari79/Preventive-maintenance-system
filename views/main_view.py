@@ -8,6 +8,8 @@ from database.equipment_repository import EquipmentRepository
 from database.pm_repository import PMRepository
 from database.work_order_repository import WorkOrderRepository
 from database.inspection_repository import InspectionRepository
+from services.inspection_service import InspectionService
+from database.db import SessionLocal
 
 BG = "#F0F4F8"
 WHITE = "#FFFFFF"
@@ -160,6 +162,7 @@ class MainView(tk.Tk):
             from views.inspection_view import InspectionView
             InspectionView(
                 self.content,
+                service=InspectionService(SessionLocal()),
                 current_user=current_user_dict
             ).pack(fill="both", expand=True)
 
