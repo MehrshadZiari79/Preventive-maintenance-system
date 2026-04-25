@@ -1,17 +1,16 @@
+# database/work_order.py
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum as SAEnum, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
 from database.db import Base
-from enum import Enum
 
 
 class WorkOrderType(enum.Enum):
-    PREVENTIVE = "preventive"   # PM scheduled maintenance
-    CORRECTIVE = "corrective"   # breakdown / emergency repair
-    INSPECTION = "inspection"   # routine inspection
-    PM = "pm"  # Add this line
-
+    PREVENTIVE = "preventive"
+    CORRECTIVE = "corrective"
+    INSPECTION = "inspection"
+    PM = "pm"
 
 
 class WorkOrderStatus(enum.Enum):
@@ -43,6 +42,12 @@ class WorkOrder(Base):
     technician_id  = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     supervisor_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+    # NEW FIELDS
+    operator_id        = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    failure_report_time = Column(DateTime, nullable=True)
+    operator_notes     = Column(Text, nullable=True)
+    operator_signature = Column(Text, nullable=True)   # base64 or text
+
     title            = Column(String(200), nullable=False)
     description      = Column(Text, nullable=True)
     parts_used       = Column(Text, nullable=True)
@@ -57,12 +62,13 @@ class WorkOrder(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Relationships
     equipment  = relationship("Equipment", backref="work_orders")
     technician = relationship("User", foreign_keys=[technician_id], backref="assigned_work_orders")
     supervisor = relationship("User", foreign_keys=[supervisor_id], backref="supervised_work_orders")
+    operator   = relationship("User", foreign_keys=[operator_id], backref="operator_work_orders")
     schedule   = relationship("PMSchedule", backref="work_orders")
 
-    # Composite index: most common filter combo (status + scheduled_date for overdue queries)
     __table_args__ = (
         Index("ix_work_orders_status_scheduled", "status", "scheduled_date"),
         Index("ix_work_orders_equipment_status", "equipment_id", "status"),

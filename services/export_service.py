@@ -581,19 +581,24 @@ def export_pm_form_pdf(pm: dict, path: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 #  WORK ORDER EXPORTS
 # ═══════════════════════════════════════════════════════════════════════════
+# services/export_service.py (work order exports only – replace the existing functions)
 
 def export_work_orders_excel(work_orders: list, path: str) -> str:
     """
     Export work order list to Excel.
-    work_orders: list of ORM WorkOrder objects (as returned by wo_repo.get_all()).
+    work_orders: list of ORM WorkOrder objects.
     """
     wb = Workbook()
     ws = wb.active
     ws.title = "Work Orders"
     ws.sheet_view.rightToLeft = True
 
-    headers = ["شناسه", "عنوان", "تجهیز", "نوع", "اولویت",
-               "تکنسین", "وضعیت", "تاریخ برنامه", "شروع", "پایان", "توضیحات"]
+    headers = [
+        "شناسه", "عنوان", "تجهیز", "نوع", "اولویت",
+        "تکنسین", "اپراتور تحویل گیرنده", "ساعت اعلام خرابی",
+        "وضعیت", "تاریخ برنامه", "شروع تعمیر", "پایان تعمیر",
+        "توضیحات اپراتور", "امضای اپراتور", "توضیحات تکنسین", "قطعات مصرفی"
+    ]
 
     TYPE_FA = {
         "PREVENTIVE": "پیشگیرانه",
@@ -626,7 +631,13 @@ def export_work_orders_excel(work_orders: list, path: str) -> str:
     for i, wo in enumerate(work_orders):
         eq_name   = wo.equipment.name if wo.equipment else "—"
         tech_name = wo.technician.full_name if wo.technician else "—"
-        status    = wo.status.name
+        operator_name = wo.operator.full_name if wo.operator else "—"
+        failure_time = wo.failure_report_time.strftime("%Y-%m-%d %H:%M") if wo.failure_report_time else "—"
+        status = wo.status.name
+        scheduled = wo.scheduled_date.strftime("%Y-%m-%d") if wo.scheduled_date else "—"
+        start = wo.start_time.strftime("%Y-%m-%d %H:%M") if wo.start_time else "—"
+        end = wo.end_time.strftime("%Y-%m-%d %H:%M") if wo.end_time else "—"
+
         _xl_data_row(ws, 5 + i, [
             wo.id,
             wo.title,
@@ -634,11 +645,16 @@ def export_work_orders_excel(work_orders: list, path: str) -> str:
             TYPE_FA.get(wo.type.name, wo.type.name),
             PRIORITY_FA.get(wo.priority.name, wo.priority.name),
             tech_name,
+            operator_name,
+            failure_time,
             STATUS_FA.get(status, status),
-            wo.scheduled_date.strftime("%Y-%m-%d") if wo.scheduled_date else "—",
-            wo.start_time.strftime("%Y-%m-%d %H:%M") if wo.start_time else "—",
-            wo.end_time.strftime("%Y-%m-%d %H:%M") if wo.end_time else "—",
+            scheduled,
+            start,
+            end,
+            wo.operator_notes or "",
+            wo.operator_signature or "",
             wo.description or "",
+            wo.parts_used or "",
         ], zebra=(i % 2 == 1))
 
         # Status colour
@@ -657,11 +673,11 @@ def export_work_order_form_pdf(wo, path: str) -> str:
     Export a single work order as a printable form PDF.
     wo: ORM WorkOrder object.
     """
-    doc   = SimpleDocTemplate(path, pagesize=A4,
-                              leftMargin=1.5*cm, rightMargin=1.5*cm,
-                              topMargin=1.5*cm, bottomMargin=1.5*cm)
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=1.5*cm, rightMargin=1.5*cm,
+                            topMargin=1.5*cm, bottomMargin=1.5*cm)
     story = []
-    st    = _pdf_styles()
+    st = _pdf_styles()
 
     TYPE_FA = {
         "PREVENTIVE": "Preventive / پیشگیرانه",
@@ -683,10 +699,12 @@ def export_work_order_form_pdf(wo, path: str) -> str:
 
     eq_name   = wo.equipment.name if wo.equipment else "—"
     tech_name = wo.technician.full_name if wo.technician else "—"
+    operator_name = wo.operator.full_name if wo.operator else "—"
 
     _pdf_header(story, "Work Order Form",
                 f"WO #{wo.id} — {wo.title}")
 
+    # ── Main details ──────────────────────────────────────────
     _pdf_section(story, "Work Order Details — اطلاعات دستور کار")
     _pdf_kv_table(story, [
         ("WO # / شناسه",              str(wo.id)),
@@ -698,13 +716,24 @@ def export_work_order_form_pdf(wo, path: str) -> str:
         ("Status / وضعیت",            STATUS_FA.get(wo.status.name, wo.status.name)),
         ("Scheduled / برنامه‌ریزی",
          wo.scheduled_date.strftime("%Y-%m-%d") if wo.scheduled_date else "—"),
-        ("Start / شروع",
+        ("Start / شروع تعمیر",
          wo.start_time.strftime("%Y-%m-%d %H:%M") if wo.start_time else "—"),
-        ("End / پایان",
+        ("End / پایان تعمیر",
          wo.end_time.strftime("%Y-%m-%d %H:%M") if wo.end_time else "—"),
     ])
 
-    _pdf_section(story, "Description / توضیحات")
+    # ── Operator section (new) ───────────────────────────────
+    _pdf_section(story, "Operator Handover — تحویل به اپراتور")
+    _pdf_kv_table(story, [
+        ("Operator / اپراتور تحویل گیرنده", operator_name),
+        ("Failure Reported At / ساعت اعلام خرابی",
+         wo.failure_report_time.strftime("%Y-%m-%d %H:%M") if wo.failure_report_time else "—"),
+        ("Operator Notes / توضیحات اپراتور", wo.operator_notes or "—"),
+        ("Operator Signature / امضای اپراتور", wo.operator_signature or "—"),
+    ])
+
+    # ── Description and parts ────────────────────────────────
+    _pdf_section(story, "Description & Parts — توضیحات و قطعات")
     story.append(_para(wo.description or "—", st["body"]))
     story.append(Spacer(1, 8))
 
@@ -712,6 +741,7 @@ def export_work_order_form_pdf(wo, path: str) -> str:
     story.append(_para(wo.parts_used or "—", st["body"]))
     story.append(Spacer(1, 8))
 
+    # ── Work notes (to be filled by technician) ──────────────
     _pdf_section(story, "Work Notes / یادداشت اجرا")
     story.append(
         Table([[""]], colWidths=[A4[0] - 3*cm], rowHeights=[2.5*cm])
@@ -726,13 +756,12 @@ def export_work_order_form_pdf(wo, path: str) -> str:
         story.append(_para(wo.supervisor_notes, st["body"]))
         story.append(Spacer(1, 8))
 
+    # ── Signature row ────────────────────────────────────────
     _pdf_signature_row(story, ["Technician / تکنسین",
                                 "Supervisor / سرپرست",
                                 "Date / تاریخ"])
     doc.build(story)
     return path
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  INSPECTION EXPORTS
 # ═══════════════════════════════════════════════════════════════════════════

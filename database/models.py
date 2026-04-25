@@ -1,14 +1,17 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index
+# database/models.py
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index, Numeric
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from enum import Enum
 from database.db import Base
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index, Numeric
+
 class UserRole(str, Enum):
     ADMIN = "admin"
     MANAGER = "manager"
     TECHNICIAN = "technician"
+
+
 class ProductionLog(Base):
     __tablename__ = "production_logs"
 
@@ -23,6 +26,8 @@ class ProductionLog(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     equipment = relationship("Equipment", backref="production_logs")
+
+
 class EquipmentStatus(str, Enum):
     OPERATIONAL = "operational"
     MAINTENANCE = "maintenance"
@@ -146,6 +151,9 @@ class PMSchedule(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # NEW: required spare parts for this PM schedule (JSON string)
+    parts_required = Column(Text, nullable=True)
+
     equipment = relationship("Equipment", back_populates="pm_schedules")
     technician = relationship("User", back_populates="pm_schedules", foreign_keys=[technician_id])
 
@@ -253,8 +261,6 @@ class InspectionResult(Base):
         return f"<InspectionResult {self.result}>"
 
 
-# Add to database/models.py
-
 class SparePart(Base):
     __tablename__ = "spare_parts"
 
@@ -269,7 +275,7 @@ class SparePart(Base):
     unit_price = Column(Numeric(10, 2), default=0.0, nullable=False)
     location = Column(String(100), nullable=True)
     supplier = Column(String(200), nullable=True)
-    equipment_codes = Column(Text, nullable=True)  # comma-separated
+    equipment_codes = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -284,7 +290,7 @@ class SparePartTransaction(Base):
     part_id = Column(Integer, ForeignKey("spare_parts.id"), nullable=False, index=True)
     transaction_type = Column(String(10), nullable=False)  # 'IN' or 'OUT'
     quantity = Column(Integer, nullable=False)
-    reference = Column(String(100), nullable=True)  # e.g., PO number, WO number
+    reference = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 

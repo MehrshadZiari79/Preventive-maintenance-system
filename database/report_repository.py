@@ -29,7 +29,6 @@ class ReportRepository:
                 WorkOrder.scheduled_date < now
             ).count()
 
-            # Average completion time using end_time (not completed_at)
             avg_time = session.query(
                 func.avg(func.julianday(WorkOrder.end_time) - func.julianday(WorkOrder.start_time)) * 24
             ).filter(
@@ -43,7 +42,7 @@ class ReportRepository:
                 func.sum(case((Equipment.status == "operational", 1), else_=0)).label("operational")
             ).one()
 
-            # PM Compliance
+            # PM Compliance: on-time completed PM work orders vs total scheduled PM tasks
             total_pm_scheduled = session.query(PMSchedule).filter(PMSchedule.is_active == True).count()
             on_time_pm = session.query(WorkOrder).filter(
                 WorkOrder.type.in_([WorkOrderType.PREVENTIVE, WorkOrderType.PM]),
@@ -86,11 +85,18 @@ class ReportRepository:
             }
 
     # ==================== PER‑EQUIPMENT REPORT ====================
-    def get_equipment_report(self, equipment_id: int):
+    def get_equipment_report(self, equipment_id: int, start_date=None, end_date=None):
         with self._session() as session:
             eq = session.query(Equipment).filter(Equipment.id == equipment_id).first()
             if not eq:
                 return None
+
+            # Apply date filters to work orders
+            wo_filter = WorkOrder.equipment_id == equipment_id
+            if start_date:
+                wo_filter = and_(wo_filter, WorkOrder.created_at >= start_date)
+            if end_date:
+                wo_filter = and_(wo_filter, WorkOrder.created_at <= end_date)
 
             wo_agg = session.query(
                 func.count(WorkOrder.id).label("total"),
@@ -105,12 +111,12 @@ class ReportRepository:
                     WorkOrder.type == WorkOrderType.CORRECTIVE,
                     func.julianday(WorkOrder.end_time) - func.julianday(WorkOrder.start_time)
                 ), else_=0)) * 24).label("total_downtime_hours"),
-            ).filter(WorkOrder.equipment_id == equipment_id).one()
+            ).filter(wo_filter).one()
 
             total_wo = wo_agg.total or 0
             cm_count = wo_agg.cm or 0
             pm_compliance = (wo_agg.pm / total_wo * 100) if total_wo > 0 else 0
-            operating_hours = self._get_operating_hours(session, equipment_id)
+            operating_hours = self._get_operating_hours(session, equipment_id, start_date, end_date)
             mtbf = operating_hours / cm_count if cm_count > 0 else operating_hours
 
             return {
@@ -199,7 +205,7 @@ class ReportRepository:
                 planned_hours = self._get_planned_hours(session, eq.id, start_date, end_date)
                 downtime = self._get_downtime_internal(session, eq.id, start_date, end_date)
                 availability = ((planned_hours - downtime) / planned_hours * 100) if planned_hours > 0 else 0
-                performance = 95.0
+                performance = 95.0  # placeholder – replace with actual speed/efficiency data if available
                 quality = self._get_inspection_pass_rate(session, eq.id, start_date, end_date)
                 oee = (availability * performance * quality) / 10000
                 results.append({
@@ -522,4 +528,4 @@ class ReportRepository:
         row = query.one()
         total = row.total or 1
         passed = row.passed or 0
-        return (passed / total) * 100
+        return (passed / total) * 1

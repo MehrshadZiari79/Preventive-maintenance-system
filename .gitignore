@@ -1,33 +1,53 @@
-# Environment
-.env
-.env.txt
-
-# Database
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
-
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
+*.so
+.Python
 venv/
-.venv/
-*.egg-info/
+env/
+ENV/
+.venv
+
+# PyInstaller
+build/
+dist/
+*.spec
+*.toc
+*.pyz
+*.pkg
+base_library.zip
+
+# Database (SQLite) – do not commit runtime DB files
+*.db
+*.db-shm
+*.db-wal
 
 # Logs
 *.log
-
-# Build
-dist/
-build/
-*.spec
+dairy_pm.log
 
 # IDE
 .vscode/
 .idea/
+*.swp
 
-# Misc
-github_u/
+# Installer outputs
+*.exe
+PM_System_Setup.exe
+pm.iss  # unless you want to keep the script – uncomment next line if you keep it
+# pm.iss
+
+# Environment & secrets
+.env
+.env.txt
+
+# Temporary / generated files
+logo_resized.png
+logo_base64.txt
+structure_checker.py  # if it's just a helper
+db_editor.py
+requirements.py       # if not used
+
+# OS junk
+Thumbs.db
+.DS_Store

@@ -1,6 +1,6 @@
 # database/spare_parts_repository.py
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from database.models import SparePart, SparePartTransaction

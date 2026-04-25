@@ -1,342 +1,302 @@
-"""
-PM Schedule Dialog - Add / Edit Preventive Maintenance Schedule
-"""
+# views/pm_dialog.py
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime, timedelta
-from tkcalendar import DateEntry
-
-BG = "#F0F4F8"
-WHITE = "#FFFFFF"
-HEADER = "#1A73E8"
-TEXT = "#202124"
-SUBTLE = "#5F6368"
-BORDER = "#DADCE0"
-RED = "#D93025"
-
-FONT_TITLE = ("Tahoma", 13, "bold")
-FONT_LABEL = ("Tahoma", 10, "bold")
-FONT_INPUT = ("Tahoma", 10)
-FONT_SMALL = ("Tahoma", 9)
-
-FREQUENCY_OPTIONS = {
-    "روزانه": ("daily", 1),
-    "هفتگی": ("weekly", 7),
-    "ماهانه": ("monthly", 30),
-    "سه‌ماهه": ("quarterly", 90),
-    "شش‌ماهه": ("biannual", 180),
-    "سالانه": ("annual", 365),
-    "سفارشی": ("custom", None),
-}
-
-FREQ_FA = {v[0]: k for k, v in FREQUENCY_OPTIONS.items()}
+from datetime import datetime
+import json
+from database.spare_parts_repository import SparePartsRepository
+from database.db import SessionLocal
 
 
 class PMDialog(tk.Toplevel):
-    def __init__(self, parent, pm_repo, equipment_repo, user_repo,
-                 schedule=None, preselect_equipment_id=None):
+    def __init__(self, parent, pm_repo, equipment_repo, user_repo, schedule=None, callback=None):
         super().__init__(parent)
         self.pm_repo = pm_repo
         self.equipment_repo = equipment_repo
         self.user_repo = user_repo
         self.schedule = schedule
-        self.preselect_equipment_id = preselect_equipment_id
+        self.callback = callback
         self.result = False
 
-        title = "ویرایش برنامه PM" if schedule else "افزودن برنامه PM"
-        self.title(title)
-        self.configure(bg=BG)
+        self.title("ویرایش برنامه PM" if schedule else "برنامه PM جدید")
+        self.geometry("750x850")
         self.resizable(False, False)
-        self._center(700, 620)
-        self.grab_set()
 
-        self._load_data()
+        self.sp_repo = SparePartsRepository(SessionLocal())
+        self.all_parts = self.sp_repo.get_all()
+        self.selected_parts = []  # list of {"part_id": id, "quantity": int, "part_number": str, "name": str, "stock": int}
+
         self._build_ui()
         if schedule:
-            self._fill_form()
-
-    def _center(self, w, h):
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() // 2) - (w // 2)
-        y = (self.winfo_screenheight() // 2) - (h // 2)
-        self.geometry(f"{w}x{h}+{x}+{y}")
-
-    def _load_data(self):
-        self.all_equipment = self.equipment_repo.get_all_equipment()
-        technicians = self.user_repo.get_all_users()
-        self.all_technicians = [u for u in technicians if u.get("is_active")]
+            self._load_data()
+        self.transient(parent)
+        self.grab_set()
 
     def _build_ui(self):
-        # Header
-        header = tk.Frame(self, bg=HEADER, height=56)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-        title_text = "✏️  ویرایش برنامه PM" if self.schedule else "➕  افزودن برنامه PM"
-        tk.Label(header, text=title_text, font=FONT_TITLE,
-                 bg=HEADER, fg=WHITE).pack(side="right", padx=20, pady=14)
-
-        # Scrollable body
-        body_outer = tk.Frame(self, bg=BG)
-        body_outer.pack(fill="both", expand=True, padx=20, pady=16)
-
-        canvas = tk.Canvas(body_outer, bg=BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(body_outer, orient="vertical", command=canvas.yview)
-        self.body = tk.Frame(canvas, bg=BG)
-
-        self.body.bind("<Configure>",
-                       lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.body, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        self._build_form()
-
-        # Buttons
-        btn_frame = tk.Frame(self, bg=BG)
-        btn_frame.pack(fill="x", padx=20, pady=(0, 16))
-
-        tk.Button(btn_frame, text="💾  ذخیره", font=FONT_LABEL,
-                  bg=HEADER, fg=WHITE, relief="flat",
-                  padx=20, pady=8, cursor="hand2",
-                  command=self._save).pack(side="right", padx=(8, 0))
-
-        tk.Button(btn_frame, text="انصراف", font=FONT_INPUT,
-                  bg=BORDER, fg=TEXT, relief="flat",
-                  padx=20, pady=8, cursor="hand2",
-                  command=self.destroy).pack(side="right")
-
-    def _field(self, parent, label, row, col=0, colspan=1):
-        tk.Label(parent, text=label, font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=row, column=col * 2, sticky="e", padx=(0, 8), pady=6)
-
-    def _build_form(self):
-        f = self.body
-        f.columnconfigure(1, weight=1)
-        f.columnconfigure(3, weight=1)
+        main = ttk.Frame(self, padding=20)
+        main.pack(fill=tk.BOTH, expand=True)
 
         # Title
-        tk.Label(f, text="عنوان برنامه *", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=0, column=2, sticky="e", padx=(0, 8), pady=6)
-        self.title_var = tk.StringVar()
-        tk.Entry(f, textvariable=self.title_var, font=FONT_INPUT,
-                 width=40, relief="solid", bd=1).grid(
-            row=0, column=3, sticky="ew", pady=6, columnspan=3)
+        ttk.Label(main, text="عنوان برنامه:", font=("Arial", 10)).grid(row=0, column=1, sticky=tk.E, pady=5)
+        self.title_entry = ttk.Entry(main, width=50)
+        self.title_entry.grid(row=0, column=0, pady=5, padx=5)
 
         # Equipment
-        tk.Label(f, text="تجهیز *", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=1, column=2, sticky="e", padx=(0, 8), pady=6)
-        self.equipment_var = tk.StringVar()
-        eq_names = [f"{e['code']} - {e['name']}" for e in self.all_equipment]
-        self.eq_combo = ttk.Combobox(f, textvariable=self.equipment_var,
-                                     values=eq_names, font=FONT_INPUT,
-                                     width=38, state="readonly")
-        self.eq_combo.grid(row=1, column=3, sticky="ew", pady=6, columnspan=3)
-
-        if self.preselect_equipment_id:
-            for i, e in enumerate(self.all_equipment):
-                if e["id"] == self.preselect_equipment_id:
-                    self.eq_combo.current(i)
-                    break
+        ttk.Label(main, text="تجهیز:", font=("Arial", 10)).grid(row=1, column=1, sticky=tk.E, pady=5)
+        self.equipment_combo = ttk.Combobox(main, width=48, state="readonly")
+        self.equipment_combo.grid(row=1, column=0, pady=5, padx=5)
+        self._load_equipment()
 
         # Technician
-        tk.Label(f, text="تکنسین مسئول", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=2, column=2, sticky="e", padx=(0, 8), pady=6)
-        self.tech_var = tk.StringVar()
-        tech_names = ["تعیین نشده"] + [u["full_name"] for u in self.all_technicians]
-        self.tech_combo = ttk.Combobox(f, textvariable=self.tech_var,
-                                       values=tech_names, font=FONT_INPUT,
-                                       width=38, state="readonly")
-        self.tech_combo.current(0)
-        self.tech_combo.grid(row=2, column=3, sticky="ew", pady=6, columnspan=3)
+        ttk.Label(main, text="تکنسین:", font=("Arial", 10)).grid(row=2, column=1, sticky=tk.E, pady=5)
+        self.technician_combo = ttk.Combobox(main, width=48, state="readonly")
+        self.technician_combo.grid(row=2, column=0, pady=5, padx=5)
+        self._load_technicians()
 
         # Frequency
-        tk.Label(f, text="دوره تناوب *", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=3, column=0, sticky="e", padx=(0, 8), pady=6)
-        self.freq_var = tk.StringVar(value="ماهانه")
-        freq_combo = ttk.Combobox(f, textvariable=self.freq_var,
-                                  values=list(FREQUENCY_OPTIONS.keys()),
-                                  font=FONT_INPUT, width=18, state="readonly")
-        freq_combo.grid(row=3, column=1, sticky="ew", pady=6)
-        freq_combo.bind("<<ComboboxSelected>>", self._on_freq_change)
+        ttk.Label(main, text="دوره تناوب:", font=("Arial", 10)).grid(row=3, column=1, sticky=tk.E, pady=5)
+        self.frequency_combo = ttk.Combobox(main, values=["daily", "weekly", "monthly", "quarterly", "biannual", "annual", "custom"], width=48, state="readonly")
+        self.frequency_combo.grid(row=3, column=0, pady=5, padx=5)
+        self.frequency_combo.bind("<<ComboboxSelected>>", self._on_frequency_change)
+        self.interval_frame = ttk.Frame(main)
+        self.interval_frame.grid(row=4, column=0, columnspan=2, pady=5, sticky="w")
+        ttk.Label(self.interval_frame, text="بازه (روز):", font=("Arial", 10)).pack(side=tk.RIGHT, padx=5)
+        self.interval_entry = ttk.Entry(self.interval_frame, width=10)
+        self.interval_entry.pack(side=tk.RIGHT)
 
-        # Interval days
-        tk.Label(f, text="تعداد روز", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=3, column=2, sticky="e", padx=(0, 8), pady=6)
-        self.interval_var = tk.IntVar(value=30)
-        self.interval_entry = tk.Entry(f, textvariable=self.interval_var,
-                                       font=FONT_INPUT, width=10,
-                                       relief="solid", bd=1)
-        self.interval_entry.grid(row=3, column=3, sticky="w", pady=6)
-        self.interval_entry.config(state="disabled")
+        # Next due date
+        ttk.Label(main, text="تاریخ شروع (اولین سررسید):", font=("Arial", 10)).grid(row=5, column=1, sticky=tk.E, pady=5)
+        from tkcalendar import DateEntry
+        self.start_date = DateEntry(main, width=47, date_pattern='yyyy-mm-dd')
+        self.start_date.grid(row=5, column=0, pady=5, padx=5)
 
-        # Start date
-        tk.Label(f, text="تاریخ شروع *", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=4, column=0, sticky="e", padx=(0, 8), pady=6)
-        self.start_date = DateEntry(f, font=FONT_INPUT, width=18,
-                                    date_pattern="yyyy-mm-dd",
-                                    background=HEADER, foreground=WHITE)
-        self.start_date.grid(row=4, column=1, sticky="w", pady=6)
+        # Checklist / Instructions
+        ttk.Label(main, text="چک‌لیست / دستورالعمل:", font=("Arial", 10)).grid(row=6, column=1, sticky=tk.NE, pady=5)
+        self.checklist_text = tk.Text(main, width=50, height=4, font=("Arial", 9))
+        self.checklist_text.grid(row=6, column=0, pady=5, padx=5)
 
         # Estimated duration
-        tk.Label(f, text="مدت تخمینی (دقیقه)", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=4, column=2, sticky="e", padx=(0, 8), pady=6)
-        self.duration_var = tk.StringVar()
-        tk.Entry(f, textvariable=self.duration_var, font=FONT_INPUT,
-                 width=10, relief="solid", bd=1).grid(
-            row=4, column=3, sticky="w", pady=6)
-
-        # Checklist
-        tk.Label(f, text="چک‌لیست کارها", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=5, column=0, sticky="ne", padx=(0, 8), pady=6)
-        self.checklist_text = tk.Text(f, font=FONT_INPUT, width=55, height=6,
-                                      relief="solid", bd=1, wrap="word")
-        self.checklist_text.grid(row=5, column=1, columnspan=5,
-                                 sticky="ew", pady=6)
-        tk.Label(f, text="هر مورد را در یک خط بنویسید",
-                 font=FONT_SMALL, bg=BG, fg=SUBTLE).grid(
-            row=6, column=1, columnspan=5, sticky="w")
+        ttk.Label(main, text="مدت تخمینی (دقیقه):", font=("Arial", 10)).grid(row=7, column=1, sticky=tk.E, pady=5)
+        self.duration_entry = ttk.Entry(main, width=20)
+        self.duration_entry.grid(row=7, column=0, pady=5, padx=5, sticky=tk.W)
 
         # Notes
-        tk.Label(f, text="یادداشت", font=FONT_LABEL,
-                 bg=BG, fg=TEXT, anchor="e").grid(
-            row=7, column=0, sticky="ne", padx=(0, 8), pady=6)
-        self.notes_text = tk.Text(f, font=FONT_INPUT, width=55, height=3,
-                                  relief="solid", bd=1, wrap="word")
-        self.notes_text.grid(row=7, column=1, columnspan=5,
-                             sticky="ew", pady=6)
+        ttk.Label(main, text="یادداشت:", font=("Arial", 10)).grid(row=8, column=1, sticky=tk.NE, pady=5)
+        self.notes_text = tk.Text(main, width=50, height=3, font=("Arial", 9))
+        self.notes_text.grid(row=8, column=0, pady=5, padx=5)
 
-    def _on_freq_change(self, event=None):
-        freq_fa = self.freq_var.get()
-        _, days = FREQUENCY_OPTIONS.get(freq_fa, ("custom", None))
-        if days is not None:
-            self.interval_var.set(days)
-            self.interval_entry.config(state="disabled")
+        # Parts selection
+        parts_frame = ttk.LabelFrame(main, text="قطعات مورد نیاز", padding=10)
+        parts_frame.grid(row=9, column=0, columnspan=2, pady=10, sticky="ew")
+        cols = ("part_number", "name", "stock", "quantity")
+        self.parts_tree = ttk.Treeview(parts_frame, columns=cols, show="headings", height=4)
+        self.parts_tree.heading("part_number", text="شماره قطعه")
+        self.parts_tree.heading("name", text="نام قطعه")
+        self.parts_tree.heading("stock", text="موجودی")
+        self.parts_tree.heading("quantity", text="تعداد مورد نیاز")
+        self.parts_tree.column("part_number", width=120)
+        self.parts_tree.column("name", width=200)
+        self.parts_tree.column("stock", width=80)
+        self.parts_tree.column("quantity", width=80)
+        self.parts_tree.pack(fill=tk.X, pady=5)
+
+        btn_frame = ttk.Frame(parts_frame)
+        btn_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(btn_frame, text="➕ افزودن قطعه", command=self._add_part).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(btn_frame, text="🗑️ حذف قطعه", command=self._remove_part).pack(side=tk.RIGHT, padx=2)
+
+        # Buttons
+        btn_frame2 = ttk.Frame(main)
+        btn_frame2.grid(row=10, column=0, columnspan=2, pady=20)
+        ttk.Button(btn_frame2, text="ذخیره", command=self._save).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame2, text="انصراف", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+
+    def _load_equipment(self):
+        equipments = self.equipment_repo.get_all_equipment()
+        self.equipment_map = {f"{eq['code']} - {eq['name']}": eq['id'] for eq in equipments}
+        self.equipment_combo['values'] = list(self.equipment_map.keys())
+        if self.equipment_map:
+            self.equipment_combo.current(0)
+
+    def _load_technicians(self):
+        users = self.user_repo.get_all_users()
+        techs = [u for u in users if u['role'] in ['technician', 'admin', 'manager']]
+        self.tech_map = {f"{u['full_name']} ({u['username']})": u['id'] for u in techs}
+        self.technician_combo['values'] = list(self.tech_map.keys())
+        if self.tech_map:
+            self.technician_combo.current(0)
+
+    def _on_frequency_change(self, event=None):
+        freq = self.frequency_combo.get()
+        if freq in ["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]:
+            days = {"daily":1, "weekly":7, "monthly":30, "quarterly":90, "biannual":180, "annual":365}
+            self.interval_entry.delete(0, tk.END)
+            self.interval_entry.insert(0, str(days[freq]))
+            self.interval_entry.config(state="readonly")
         else:
             self.interval_entry.config(state="normal")
+            self.interval_entry.delete(0, tk.END)
 
-    def _fill_form(self):
-        s = self.schedule
-        self.title_var.set(s["title"])
+    def _add_part(self):
+        dialog = tk.Toplevel(self)
+        dialog.title("انتخاب قطعه")
+        dialog.geometry("400x250")
+        dialog.transient(self)
+        dialog.grab_set()
 
-        for i, e in enumerate(self.all_equipment):
-            if e["id"] == s["equipment_id"]:
-                self.eq_combo.current(i)
-                break
+        ttk.Label(dialog, text="قطعه:").pack(pady=5)
+        part_combo = ttk.Combobox(dialog, values=[f"{p.part_number} - {p.name}" for p in self.all_parts], width=40, state="readonly")
+        part_combo.pack(pady=5)
 
-        if s["technician_id"]:
-            for i, u in enumerate(self.all_technicians):
-                if u["id"] == s["technician_id"]:
-                    self.tech_combo.current(i + 1)
-                    break
+        ttk.Label(dialog, text="تعداد مورد نیاز:").pack(pady=5)
+        qty_entry = ttk.Entry(dialog, width=10)
+        qty_entry.pack(pady=5)
 
-        freq_fa = FREQ_FA.get(s["frequency"], "ماهانه")
-        self.freq_var.set(freq_fa)
-        self.interval_var.set(s["interval_days"])
-
-        if s["next_due"]:
+        def confirm():
+            selection = part_combo.get()
+            if not selection:
+                return
             try:
-                dt = datetime.strptime(s["next_due"], "%Y-%m-%d")
-                self.start_date.set_date(dt)
-            except Exception:
+                qty = int(qty_entry.get())
+                if qty <= 0:
+                    raise ValueError
+            except:
+                messagebox.showerror("خطا", "تعداد نامعتبر")
+                return
+            for p in self.all_parts:
+                if f"{p.part_number} - {p.name}" == selection:
+                    # Check if already added
+                    for item in self.selected_parts:
+                        if item['part_id'] == p.id:
+                            messagebox.showwarning("تکرار", "این قطعه قبلاً اضافه شده است.")
+                            return
+                    self.selected_parts.append({
+                        "part_id": p.id,
+                        "part_number": p.part_number,
+                        "name": p.name,
+                        "quantity": qty,
+                        "stock": p.current_stock
+                    })
+                    self._refresh_parts_tree()
+                    dialog.destroy()
+                    return
+            messagebox.showerror("خطا", "قطعه یافت نشد")
+
+        ttk.Button(dialog, text="تأیید", command=confirm).pack(pady=10)
+        ttk.Button(dialog, text="انصراف", command=dialog.destroy).pack()
+
+    def _remove_part(self):
+        selected = self.parts_tree.selection()
+        if not selected:
+            return
+        idx = int(selected[0])
+        del self.selected_parts[idx]
+        self._refresh_parts_tree()
+
+    def _refresh_parts_tree(self):
+        for item in self.parts_tree.get_children():
+            self.parts_tree.delete(item)
+        for i, p in enumerate(self.selected_parts):
+            self.parts_tree.insert("", "end", iid=str(i), values=(
+                p['part_number'], p['name'], p['stock'], p['quantity']
+            ))
+
+    def _load_data(self):
+        s = self.schedule
+        self.title_entry.insert(0, s.get("title", ""))
+        eq_key = f"{s['equipment_code']} - {s['equipment_name']}"
+        if eq_key in self.equipment_map:
+            self.equipment_combo.set(eq_key)
+        tech_key = f"{s['technician_name']}"
+        # simple match – better to use full name but keep simple
+        for k in self.tech_map:
+            if s['technician_name'] in k:
+                self.technician_combo.set(k)
+                break
+        self.frequency_combo.set(s.get("frequency", ""))
+        self._on_frequency_change()
+        if s.get("interval_days"):
+            self.interval_entry.delete(0, tk.END)
+            self.interval_entry.insert(0, str(s["interval_days"]))
+        if s.get("next_due_dt"):
+            self.start_date.set_date(s["next_due_dt"])
+        if s.get("checklist"):
+            self.checklist_text.insert("1.0", s["checklist"])
+        if s.get("estimated_duration"):
+            self.duration_entry.insert(0, str(s["estimated_duration"]))
+        if s.get("notes"):
+            self.notes_text.insert("1.0", s["notes"])
+        # Load parts_required JSON
+        if s.get("parts_required"):
+            try:
+                parts_list = json.loads(s["parts_required"])
+                for part_info in parts_list:
+                    part_id = part_info["part_id"]
+                    qty = part_info["quantity"]
+                    part = next((p for p in self.all_parts if p.id == part_id), None)
+                    if part:
+                        self.selected_parts.append({
+                            "part_id": part.id,
+                            "part_number": part.part_number,
+                            "name": part.name,
+                            "quantity": qty,
+                            "stock": part.current_stock
+                        })
+                self._refresh_parts_tree()
+            except:
                 pass
 
-        if s["estimated_duration"]:
-            self.duration_var.set(str(s["estimated_duration"]))
-
-        if s["checklist"]:
-            self.checklist_text.insert("1.0", s["checklist"])
-
-        if s["notes"]:
-            self.notes_text.insert("1.0", s["notes"])
-
     def _save(self):
-        title = self.title_var.get().strip()
-        eq_str = self.equipment_var.get()
-        freq_fa = self.freq_var.get()
-
+        title = self.title_entry.get().strip()
         if not title:
-            messagebox.showerror("خطا", "عنوان برنامه الزامی است.", parent=self)
+            messagebox.showerror("خطا", "عنوان الزامی است.")
             return
-        if not eq_str:
-            messagebox.showerror("خطا", "لطفاً یک تجهیز انتخاب کنید.", parent=self)
+        eq_key = self.equipment_combo.get()
+        if not eq_key:
+            messagebox.showerror("خطا", "تجهیز الزامی است.")
             return
+        equipment_id = self.equipment_map[eq_key]
 
-        # Find equipment id
-        eq_id = None
-        for e in self.all_equipment:
-            if f"{e['code']} - {e['name']}" == eq_str:
-                eq_id = e["id"]
-                break
-        if not eq_id:
-            messagebox.showerror("خطا", "تجهیز انتخاب نشده.", parent=self)
-            return
+        tech_key = self.technician_combo.get()
+        technician_id = self.tech_map.get(tech_key) if tech_key else None
 
-        # Find technician id
-        tech_id = None
-        tech_name = self.tech_var.get()
-        if tech_name != "تعیین نشده":
-            for u in self.all_technicians:
-                if u["full_name"] == tech_name:
-                    tech_id = u["id"]
-                    break
-
-        freq_en, default_days = FREQUENCY_OPTIONS.get(freq_fa, ("monthly", 30))
+        frequency = self.frequency_combo.get()
         try:
-            interval = int(self.interval_var.get())
-        except Exception:
-            interval = default_days or 30
+            interval_days = int(self.interval_entry.get())
+        except:
+            interval_days = 30
 
+        start_date = self.start_date.get_date()
+        checklist = self.checklist_text.get("1.0", tk.END).strip() or None
         try:
-            start_dt = datetime.strptime(
-                self.start_date.get_date().strftime("%Y-%m-%d"), "%Y-%m-%d"
-            )
-        except Exception:
-            start_dt = datetime.utcnow()
+            estimated_duration = int(self.duration_entry.get()) if self.duration_entry.get() else None
+        except:
+            estimated_duration = None
+        notes = self.notes_text.get("1.0", tk.END).strip() or None
 
-        duration_str = self.duration_var.get().strip()
-        duration = int(duration_str) if duration_str.isdigit() else None
-        checklist = self.checklist_text.get("1.0", "end").strip()
-        notes = self.notes_text.get("1.0", "end").strip()
+        # Build parts_required JSON
+        parts_required = None
+        if self.selected_parts:
+            parts_required = json.dumps([{"part_id": p["part_id"], "quantity": p["quantity"]} for p in self.selected_parts])
 
         if self.schedule:
-            ok, msg = self.pm_repo.update(
-                schedule_id=self.schedule["id"],
-                title=title,
-                equipment_id=eq_id,
-                technician_id=tech_id,
-                frequency=freq_en,
-                interval_days=interval,
-                next_due=start_dt + __import__("datetime").timedelta(days=interval),
-                checklist=checklist,
-                estimated_duration=duration,
-                notes=notes,
+            # Get next_due from original schedule? For update, we use start_date as next_due
+            # But update expects next_due datetime. We'll use start_date as next_due.
+            success, msg = self.pm_repo.update(
+                self.schedule["id"], title, equipment_id, technician_id,
+                frequency, interval_days, start_date, checklist,
+                estimated_duration, notes, parts_required
             )
         else:
-            ok, msg = self.pm_repo.create(
-                title=title,
-                equipment_id=eq_id,
-                technician_id=tech_id,
-                frequency=freq_en,
-                interval_days=interval,
-                start_date=start_dt,
-                checklist=checklist,
-                estimated_duration=duration,
-                notes=notes,
+            success, msg = self.pm_repo.create(
+                title, equipment_id, technician_id, frequency,
+                interval_days, start_date, checklist,
+                estimated_duration, notes, parts_required
             )
-
-        if ok:
+        if success:
+            messagebox.showinfo("موفق", msg)
             self.result = True
+            if self.callback:
+                self.callback()
             self.destroy()
         else:
-            messagebox.showerror("خطا", msg, parent=self)
+            messagebox.showerror("خطا", msg)

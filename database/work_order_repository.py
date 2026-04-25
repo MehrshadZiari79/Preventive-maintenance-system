@@ -9,7 +9,9 @@ class WorkOrderRepository:
 
     def create_work_order(self, title, equipment_id, type_str, priority,
                           technician_id=None, scheduled_date=None,
-                          description=None, parts_used=None, schedule_id=None):
+                          description=None, parts_used=None, schedule_id=None,
+                          operator_id=None, failure_report_time=None,
+                          operator_notes=None, operator_signature=None):
         db = SessionLocal()
         try:
             wo_type = (WorkOrderType[type_str.upper()]
@@ -26,6 +28,10 @@ class WorkOrderRepository:
                 type=wo_type,
                 priority=wo_priority,
                 technician_id=technician_id,
+                operator_id=operator_id,
+                failure_report_time=failure_report_time,
+                operator_notes=operator_notes,
+                operator_signature=operator_signature,
                 title=title,
                 description=description or None,
                 parts_used=parts_used or None,
@@ -34,16 +40,19 @@ class WorkOrderRepository:
             )
             db.add(wo)
             db.commit()
-            return True, "کار با موفقیت ثبت شد."
+            db.refresh(wo)
+            return True, "کار با موفقیت ثبت شد."  # Only two values
         except Exception as e:
             db.rollback()
-            return False, f"خطا: {str(e)}"
+            return False, f"خطا: {str(e)}"  # Only two values
         finally:
             db.close()
 
     def update_work_order(self, work_order_id, title, equipment_id, type_str,
                           priority, technician_id=None, scheduled_date=None,
-                          description=None, parts_used=None):
+                          description=None, parts_used=None,
+                          operator_id=None, failure_report_time=None,
+                          operator_notes=None, operator_signature=None):
         db = SessionLocal()
         try:
             wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
@@ -63,6 +72,10 @@ class WorkOrderRepository:
             wo.type = wo_type
             wo.priority = wo_priority
             wo.technician_id = technician_id
+            wo.operator_id = operator_id
+            wo.failure_report_time = failure_report_time
+            wo.operator_notes = operator_notes
+            wo.operator_signature = operator_signature
             wo.scheduled_date = scheduled_date
             wo.description = description or None
             wo.parts_used = parts_used or None
@@ -80,7 +93,8 @@ class WorkOrderRepository:
             query = db.query(WorkOrder).options(
                 joinedload(WorkOrder.equipment),
                 joinedload(WorkOrder.technician),
-                joinedload(WorkOrder.supervisor)
+                joinedload(WorkOrder.supervisor),
+                joinedload(WorkOrder.operator)   # new
             )
             if status_filter:
                 query = query.filter(WorkOrder.status == status_filter)
@@ -99,7 +113,8 @@ class WorkOrderRepository:
             wo = db.query(WorkOrder).options(
                 joinedload(WorkOrder.equipment),
                 joinedload(WorkOrder.technician),
-                joinedload(WorkOrder.supervisor)
+                joinedload(WorkOrder.supervisor),
+                joinedload(WorkOrder.operator)
             ).filter(WorkOrder.id == work_order_id).first()
             if wo:
                 db.expunge(wo)
@@ -123,17 +138,65 @@ class WorkOrderRepository:
         finally:
             db.close()
 
-    def complete_work(self, work_order_id, description=None, parts_used=None):
+    # Add these methods to WorkOrderRepository
+
+    def deduct_spare_parts(self, work_order_id: int, parts_list: list) -> tuple[bool, str, list]:
+        """
+        Deduct spare parts from inventory.
+        parts_list = [{"part_id": int, "quantity": int}, ...]
+        Returns (success, message, low_stock_parts)
+        """
+        from database.spare_parts_repository import SparePartsRepository
+        db = SessionLocal()
+        low_stock_parts = []
+        try:
+            for item in parts_list:
+                part_id = item['part_id']
+                qty = item['quantity']
+                sp_repo = SparePartsRepository(db)
+                part = sp_repo.get_by_id(part_id)
+                if not part:
+                    return False, f"قطعه با ID {part_id} یافت نشد.", []
+                if part.current_stock < qty:
+                    return False, f"موجودی قطعه {part.part_number} کافی نیست. موجودی: {part.current_stock}", []
+                part.current_stock -= qty
+                # Log transaction
+                sp_repo.add_transaction({
+                    'part_id': part_id,
+                    'transaction_type': 'OUT',
+                    'quantity': qty,
+                    'reference': f"WO-{work_order_id}",
+                    'notes': f"مصرف در دستور کار {work_order_id}"
+                })
+                if part.current_stock <= part.min_stock:
+                    low_stock_parts.append(part.part_number)
+            db.commit()
+            return True, "قطعات با موفقیت کسر شدند.", low_stock_parts
+        except Exception as e:
+            db.rollback()
+            return False, f"خطا در کسر قطعات: {str(e)}", []
+        finally:
+            db.close()
+
+    def complete_work(self, work_order_id, description=None, parts_used=None, used_parts_list=None):
         db = SessionLocal()
         try:
             wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
             if not wo:
                 return False, "کار یافت نشد."
 
+            # Deduct spare parts if any
+            low_stock = []
+            if used_parts_list:
+                success, msg, low_stock = self._deduct_spare_parts(work_order_id, used_parts_list)
+                if not success:
+                    return False, msg
+
             wo.status = WorkOrderStatus.COMPLETED
             wo.completed_at = datetime.now()
             wo.completion_notes = description
-            wo.parts_used = parts_used
+            if parts_used:
+                wo.parts_used = parts_used
 
             # Update PM schedule if this is a preventive work order
             if wo.schedule_id:
@@ -142,24 +205,11 @@ class WorkOrderRepository:
                 pm_repo.update_after_completion(wo.schedule_id, wo.completed_at)
 
             db.commit()
-            return True, "کار تکمیل شد."
-        except Exception as e:
-            db.rollback()
-            return False, str(e)
-        finally:
-            db.close()
 
-    def approve(self, work_order_id, supervisor_id, notes=None):
-        db = SessionLocal()
-        try:
-            wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
-            if not wo:
-                return False, "کار یافت نشد."
-            wo.status = WorkOrderStatus.APPROVED
-            wo.supervisor_id = supervisor_id
-            wo.supervisor_notes = notes
-            db.commit()
-            return True, "کار تایید شد."
+            msg = "کار تکمیل شد."
+            if low_stock:
+                msg += f"\n⚠️ هشدار: قطعات {', '.join(low_stock)} به حداقل موجودی رسیده‌اند."
+            return True, msg
         except Exception as e:
             db.rollback()
             return False, str(e)

@@ -7,6 +7,7 @@ from database.work_order import WorkOrderStatus
 from views.work_order_dialog import WorkOrderDialog
 from views.export_dialog import run_work_order_export
 
+
 class WorkOrderView(tk.Frame):
     def __init__(self, parent, work_order_repo, current_user):
         super().__init__(parent, bg="#F0F4F8")
@@ -58,22 +59,25 @@ class WorkOrderView(tk.Frame):
         table_container = tk.Frame(self, bg="#FFFFFF", highlightbackground="#DADCE0", highlightthickness=1)
         table_container.pack(fill="both", expand=True, padx=20, pady=10)
 
-        cols = ("id", "title", "equipment", "type", "technician", "status", "start", "end")
+        # Add new columns: Operator, Failure Report Time
+        cols = ("id", "title", "equipment", "operator", "failure_time", "technician", "status", "start", "end")
         self.tree = ttk.Treeview(table_container, columns=cols, show="headings", height=18)
 
         self.tree.heading("id", text="شناسه")
         self.tree.heading("title", text="عنوان")
         self.tree.heading("equipment", text="تجهیز")
-        self.tree.heading("type", text="نوع")
+        self.tree.heading("operator", text="اپراتور تحویل گیرنده")
+        self.tree.heading("failure_time", text="ساعت اعلام خرابی")
         self.tree.heading("technician", text="تکنسین")
         self.tree.heading("status", text="وضعیت")
-        self.tree.heading("start", text="شروع")
-        self.tree.heading("end", text="پایان")
+        self.tree.heading("start", text="شروع تعمیر")
+        self.tree.heading("end", text="پایان تعمیر")
 
         self.tree.column("id", width=60, anchor="center")
-        self.tree.column("title", width=200, anchor="w")
-        self.tree.column("equipment", width=150, anchor="w")
-        self.tree.column("type", width=80, anchor="center")
+        self.tree.column("title", width=180, anchor="w")
+        self.tree.column("equipment", width=140, anchor="w")
+        self.tree.column("operator", width=130, anchor="center")
+        self.tree.column("failure_time", width=120, anchor="center")
         self.tree.column("technician", width=120, anchor="center")
         self.tree.column("status", width=100, anchor="center")
         self.tree.column("start", width=130, anchor="center")
@@ -102,7 +106,6 @@ class WorkOrderView(tk.Frame):
 
         status_fa = self.status_var.get()
         status_filter = None
-
         if status_fa != "همه":
             status_map = {
                 "در انتظار": WorkOrderStatus.PENDING,
@@ -118,6 +121,8 @@ class WorkOrderView(tk.Frame):
         for wo in work_orders:
             eq_name = wo.equipment.name if wo.equipment else "-"
             tech_name = wo.technician.full_name if wo.technician else "-"
+            operator_name = wo.operator.full_name if wo.operator else "-"
+            failure_time_str = wo.failure_report_time.strftime("%Y-%m-%d %H:%M") if wo.failure_report_time else "-"
 
             type_fa = {"PM": "PM", "BREAKDOWN": "خرابی", "INSPECTION": "بازرسی"}.get(wo.type.name, wo.type.name)
 
@@ -133,7 +138,8 @@ class WorkOrderView(tk.Frame):
             end_str = wo.end_time.strftime("%Y-%m-%d %H:%M") if wo.end_time else "-"
 
             self.tree.insert("", "end", values=(
-                wo.id, wo.title, eq_name, type_fa, tech_name, status_fa, start_str, end_str
+                wo.id, wo.title, eq_name, operator_name, failure_time_str,
+                tech_name, status_fa, start_str, end_str
             ))
 
     def _selected_id(self):
@@ -144,7 +150,6 @@ class WorkOrderView(tk.Frame):
         return int(self.tree.item(sel[0])["values"][0])
 
     def _export(self):
-        from views.export_dialog import run_work_order_export
         selected_id = None
         sel = self.tree.selection()
         if sel:
@@ -169,13 +174,14 @@ class WorkOrderView(tk.Frame):
 
     def _complete_work(self):
         wid = self._selected_id()
-        if wid:
-            ok, msg = self.wo_repo.complete_work(wid)
-            if ok:
-                messagebox.showinfo("موفق", msg)
-                self._load()
-            else:
-                messagebox.showerror("خطا", msg)
+        if not wid:
+            return
+        # Open parts selection dialog
+        from views.parts_selection_dialog import PartsSelectionDialog
+        dlg = PartsSelectionDialog(self, self.wo_repo, wid)
+        self.wait_window(dlg)
+        if dlg.result:
+            self._load()
 
     def _approve_work(self):
         wid = self._selected_id()

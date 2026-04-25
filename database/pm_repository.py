@@ -43,12 +43,8 @@ class PMRepository:
 
             session.commit()
             return self._to_dict(schedule)
+
     def get_all(self) -> list[dict]:
-        """
-        Fixed: added joinedload for equipment and technician.
-        Previously the .join() didn't eager-load relationships,
-        so _to_dict triggered a lazy load per row (N+1 queries).
-        """
         with self._session() as session:
             schedules = (
                 session.query(PMSchedule)
@@ -89,7 +85,6 @@ class PMRepository:
             return [self._to_dict(s) for s in schedules]
 
     def get_overdue(self) -> list[dict]:
-        """Fixed: added joinedload — was triggering lazy loads per row."""
         with self._session() as session:
             now = datetime.utcnow()
             schedules = (
@@ -108,7 +103,6 @@ class PMRepository:
             return [self._to_dict(s) for s in schedules]
 
     def get_upcoming(self, days: int = 7) -> list[dict]:
-        """Fixed: added joinedload — was triggering lazy loads per row."""
         with self._session() as session:
             now    = datetime.utcnow()
             future = now + timedelta(days=days)
@@ -129,10 +123,6 @@ class PMRepository:
             return [self._to_dict(s) for s in schedules]
 
     def get_stats(self) -> dict:
-        """
-        Fixed: was 3 separate queries — now 1 query using
-        conditional aggregation.
-        """
         with self._session() as session:
             now = datetime.utcnow()
             row = session.query(
@@ -153,7 +143,6 @@ class PMRepository:
                     ), 1), else_=0
                 )).label("upcoming"),
             ).one()
-
             return {
                 "total":    row.total    or 0,
                 "overdue":  row.overdue  or 0,
@@ -165,7 +154,7 @@ class PMRepository:
     def create(self, title: str, equipment_id: int, technician_id: Optional[int],
                frequency: str, interval_days: int, start_date: datetime,
                checklist: str, estimated_duration: Optional[int],
-               notes: str) -> tuple[bool, str]:
+               notes: str, parts_required: Optional[str] = None) -> tuple[bool, str]:
         try:
             next_due = start_date + timedelta(days=interval_days)
             with self._session() as session:
@@ -181,6 +170,7 @@ class PMRepository:
                     estimated_duration = estimated_duration or None,
                     is_active          = True,
                     notes              = notes or None,
+                    parts_required     = parts_required or None,
                 )
                 session.add(schedule)
                 session.commit()
@@ -191,7 +181,8 @@ class PMRepository:
     def update(self, schedule_id: int, title: str, equipment_id: int,
                technician_id: Optional[int], frequency: str, interval_days: int,
                next_due: datetime, checklist: str,
-               estimated_duration: Optional[int], notes: str) -> tuple[bool, str]:
+               estimated_duration: Optional[int], notes: str,
+               parts_required: Optional[str] = None) -> tuple[bool, str]:
         try:
             with self._session() as session:
                 s = session.query(PMSchedule).filter(PMSchedule.id == schedule_id).first()
@@ -206,6 +197,7 @@ class PMRepository:
                 s.checklist          = checklist or None
                 s.estimated_duration = estimated_duration or None
                 s.notes              = notes or None
+                s.parts_required     = parts_required or None
                 s.updated_at         = datetime.utcnow()
                 session.commit()
             return True, "برنامه PM بروزرسانی شد."
@@ -213,7 +205,6 @@ class PMRepository:
             return False, f"خطای پایگاه داده: {e}"
 
     def mark_done(self, schedule_id: int, done_date: datetime) -> tuple[bool, str]:
-        """ثبت انجام PM و محاسبه تاریخ بعدی"""
         try:
             with self._session() as session:
                 s = session.query(PMSchedule).filter(PMSchedule.id == schedule_id).first()
@@ -279,5 +270,25 @@ class PMRepository:
             "is_overdue":         is_overdue,
             "days_until":         days_until,
             "notes":              s.notes or "",
+            "parts_required":     s.parts_required or "",
             "created_at":         s.created_at.strftime("%Y-%m-%d") if s.created_at else "",
         }
+
+    def get_upcoming_pms(self, days=7):
+        """Return PM schedules with next_due in the next `days` days (as ORM objects)."""
+        with self._session() as session:
+            now = datetime.now()
+            future = now + timedelta(days=days)
+            return session.query(PMSchedule).filter(
+                PMSchedule.is_active == True,
+                PMSchedule.next_due >= now,
+                PMSchedule.next_due <= future
+            ).order_by(PMSchedule.next_due).all()
+
+    def get_overdue_count(self) -> int:
+        """Count of active PM schedules with next_due < now."""
+        with self._session() as session:
+            return session.query(PMSchedule).filter(
+                PMSchedule.is_active == True,
+                PMSchedule.next_due < datetime.now()
+            ).count()

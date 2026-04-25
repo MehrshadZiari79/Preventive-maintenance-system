@@ -16,20 +16,15 @@ class PMService:
         self.wo_repo = WorkOrderRepository()
 
     def generate_due_work_orders(self) -> tuple[int, int, list[str]]:
-        """
-        Generate work orders for overdue and upcoming PM schedules.
-        Returns: (created_count, skipped_count, error_messages)
-        """
         created = 0
         skipped = 0
-        errors  = []
+        errors = []
 
-        overdue  = self.pm_repo.get_overdue()
+        overdue = self.pm_repo.get_overdue()
         upcoming = self.pm_repo.get_upcoming(days=AUTO_GENERATE_DAYS_AHEAD)
 
-        # Deduplicate (a PM can appear in both lists if it's overdue and upcoming)
         seen_ids = set()
-        all_due  = []
+        all_due = []
         for pm in overdue + upcoming:
             if pm["id"] not in seen_ids:
                 seen_ids.add(pm["id"])
@@ -39,11 +34,8 @@ class PMService:
             if not pm.get("is_active"):
                 continue
 
-            # next_due comes from _to_dict as a string "YYYY-MM-DD"
-            # convert it back to datetime for the DB query and WO creation
-            next_due_raw = pm.get("next_due_dt")  # use the raw datetime field
+            next_due_raw = pm.get("next_due_dt")
             if next_due_raw is None:
-                # fallback: parse from the string field
                 next_due_str = pm.get("next_due", "")
                 if not next_due_str:
                     errors.append(f"PM #{pm['id']} ({pm['title']}): تاریخ سررسید موجود نیست")
@@ -54,17 +46,15 @@ class PMService:
                     errors.append(f"PM #{pm['id']} ({pm['title']}): فرمت تاریخ نامعتبر")
                     continue
 
-            # Skip if a work order already exists for this PM + date
-            existing = self.wo_repo.find_by_schedule_and_date(
-                pm["id"],
-                next_due_raw,
-            )
+            existing = self.wo_repo.find_by_schedule_and_date(pm["id"], next_due_raw)
             if existing:
                 skipped += 1
                 continue
 
-            # create_work_order returns (bool, str) — unpack correctly
-            ok, msg = self.wo_repo.create_work_order(
+            # Get required parts JSON
+            parts_required = pm.get("parts_required", "")
+            # The work order's `parts_used` will store this JSON to be used during completion
+            success, msg = self.wo_repo.create_work_order(
                 title=f"PM: {pm['title']}",
                 equipment_id=pm["equipment_id"],
                 type_str="PREVENTIVE",
@@ -72,11 +62,14 @@ class PMService:
                 technician_id=pm.get("technician_id"),
                 scheduled_date=next_due_raw,
                 description=f"برنامه نگهداری پیشگیرانه — دوره: {pm['frequency']}",
-                parts_used=None,
+                parts_used=parts_required,  # store required parts JSON
                 schedule_id=pm["id"],
+                operator_id=None,
+                failure_report_time=None,
+                operator_notes=None,
+                operator_signature=None
             )
-
-            if ok:
+            if success:
                 created += 1
             else:
                 errors.append(f"PM #{pm['id']} ({pm['title']}): {msg}")

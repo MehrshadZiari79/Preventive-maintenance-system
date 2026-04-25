@@ -219,7 +219,12 @@ class MainView(tk.Tk):
                 self.content,
                 session=SessionLocal()
             ).pack(fill="both", expand=True)
-
+        elif view_key == "dashboard":
+            from views.dashboard_view import DashboardView
+            DashboardView(
+                self.content,
+                current_user=current_user_dict
+            ).pack(fill="both", expand=True)
         else:
             # Placeholder for future views
             container = tk.Frame(self.content, bg=BG)

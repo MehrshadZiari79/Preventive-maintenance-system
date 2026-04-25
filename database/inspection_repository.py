@@ -1,9 +1,11 @@
+# database/inspection_repository.py
 """
 Inspection Repository - Data Access Layer for Inspection Management
 """
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import func, case, and_
+from sqlalchemy.orm import joinedload
 from database.db import SessionLocal
 from database.models import (
     InspectionTemplate, InspectionCheckpoint,
@@ -19,8 +21,7 @@ class InspectionRepository:
     def _session(self):
         return SessionLocal()
 
-    # ─────────────────────────── TEMPLATES ──────────────────────────
-
+    # ==================== TEMPLATES ====================
     def get_all_templates(self) -> List[dict]:
         with self._session() as session:
             templates = session.query(InspectionTemplate).order_by(
@@ -79,14 +80,12 @@ class InspectionRepository:
                 ).first()
                 if not template:
                     return False, "الگو یافت نشد."
-
                 template.name = name
                 template.description = description or None
                 template.equipment_id = equipment_id
                 template.frequency = frequency
                 template.estimated_duration_minutes = estimated_duration_minutes
                 template.updated_at = datetime.utcnow()
-
                 session.commit()
             return True, "الگو بروزرسانی شد."
         except Exception as e:
@@ -100,11 +99,9 @@ class InspectionRepository:
                 ).first()
                 if not template:
                     return False, "الگو یافت نشد."
-
                 template.is_active = not template.is_active
                 template.updated_at = datetime.utcnow()
                 session.commit()
-
                 status = "فعال" if template.is_active else "غیرفعال"
                 return True, f"الگو {status} شد."
         except Exception as e:
@@ -118,15 +115,13 @@ class InspectionRepository:
                 ).first()
                 if not template:
                     return False, "الگو یافت نشد."
-
                 session.delete(template)
                 session.commit()
             return True, "الگو حذف شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
 
-    # ─────────────────────────── CHECKPOINTS ────────────────────────
-
+    # ==================== CHECKPOINTS ====================
     def get_checkpoints_by_template(self, template_id: int) -> List[dict]:
         with self._session() as session:
             checkpoints = session.query(InspectionCheckpoint).filter(
@@ -160,12 +155,10 @@ class InspectionRepository:
                 ).first()
                 if not checkpoint:
                     return False, "نقطه بازرسی یافت نشد."
-
                 checkpoint.title = title
                 checkpoint.description = description or None
                 checkpoint.checkpoint_type = checkpoint_type
                 checkpoint.order_number = order_number
-
                 session.commit()
             return True, "نقطه بازرسی بروزرسانی شد."
         except Exception as e:
@@ -179,21 +172,27 @@ class InspectionRepository:
                 ).first()
                 if not checkpoint:
                     return False, "نقطه بازرسی یافت نشد."
-
                 session.delete(checkpoint)
                 session.commit()
             return True, "نقطه بازرسی حذف شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
 
-    # ─────────────────────────── INSPECTIONS ────────────────────────
-
-    def get_all_inspections(self) -> List[dict]:
+    # ==================== INSPECTIONS ====================
+    def get_all_inspections(self) -> List[Inspection]:
+        """Return all Inspection ORM objects (not dicts) for dashboard and other uses."""
         with self._session() as session:
-            inspections = session.query(Inspection).order_by(
-                Inspection.started_at.desc()
-            ).all()
-            return [self._inspection_to_dict(i) for i in inspections]
+            try:
+                # Use joinedload to avoid lazy loading issues
+                inspections = session.query(Inspection).options(
+                    joinedload(Inspection.template),
+                    joinedload(Inspection.equipment),
+                    joinedload(Inspection.inspector)
+                ).order_by(Inspection.started_at.desc()).all()
+                return inspections if inspections else []
+            except Exception as e:
+                print(f"Error loading inspections: {e}")
+                return []
 
     def get_inspection_by_id(self, inspection_id: int) -> Optional[dict]:
         with self._session() as session:
@@ -243,12 +242,10 @@ class InspectionRepository:
                 ).first()
                 if not inspection:
                     return False, "بازرسی یافت نشد."
-
                 inspection.completed_at = datetime.utcnow()
                 inspection.status = "completed"
                 inspection.overall_result = overall_result
                 inspection.notes = notes or None
-
                 session.commit()
             return True, "بازرسی تکمیل شد."
         except Exception as e:
@@ -262,15 +259,13 @@ class InspectionRepository:
                 ).first()
                 if not inspection:
                     return False, "بازرسی یافت نشد."
-
                 inspection.status = "cancelled"
                 session.commit()
             return True, "بازرسی لغو شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
 
-    # ─────────────────────────── RESULTS ────────────────────────────
-
+    # ==================== RESULTS ====================
     def get_results_by_inspection(self, inspection_id: int) -> List[dict]:
         with self._session() as session:
             results = session.query(InspectionResult).filter(
@@ -288,7 +283,6 @@ class InspectionRepository:
                         InspectionResult.checkpoint_id == checkpoint_id
                     )
                 ).first()
-
                 if existing:
                     existing.result = result
                     existing.comment = comment or None
@@ -301,14 +295,12 @@ class InspectionRepository:
                         comment=comment or None
                     )
                     session.add(new_result)
-
                 session.commit()
             return True, "نتیجه ذخیره شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
 
-    # ─────────────────────────── STATS ──────────────────────────────
-
+    # ==================== STATS ====================
     def get_inspection_stats(self) -> dict:
         with self._session() as session:
             row = session.query(
@@ -317,7 +309,6 @@ class InspectionRepository:
                 func.sum(case((Inspection.status == "completed", 1), else_=0)).label("completed"),
                 func.sum(case((Inspection.status == "cancelled", 1), else_=0)).label("cancelled"),
             ).one()
-
             return {
                 "total": row.total or 0,
                 "in_progress": row.in_progress or 0,
@@ -325,8 +316,7 @@ class InspectionRepository:
                 "cancelled": row.cancelled or 0,
             }
 
-    # ─────────────────────────── HELPERS ────────────────────────────
-
+    # ==================== HELPERS ====================
     @staticmethod
     def _template_to_dict(t: InspectionTemplate) -> dict:
         return {
