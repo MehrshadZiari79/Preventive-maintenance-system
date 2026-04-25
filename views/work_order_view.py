@@ -1,12 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from datetime import datetime
-
 from database.work_order_repository import WorkOrderRepository
 from database.work_order import WorkOrderStatus
 from views.work_order_dialog import WorkOrderDialog
 from views.export_dialog import run_work_order_export
-
+from views.emergency_work_order_dialog import EmergencyWorkOrderDialog
 
 class WorkOrderView(tk.Frame):
     def __init__(self, parent, work_order_repo, current_user):
@@ -31,6 +30,9 @@ class WorkOrderView(tk.Frame):
 
         tk.Button(btn_frame, text="➕ کار جدید", command=self._add_work,
                   bg="#27ae60", fg="white", font=("Tahoma", 10, "bold"),
+                  cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="🚨 کار اضطراری", command=self._emergency_work,
+                  bg="#EA4335", fg="white", font=("Tahoma", 10, "bold"),
                   cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
         tk.Button(btn_frame, text="🔄 بروزرسانی", command=self._load,
                   bg="#3498db", fg="white", font=("Tahoma", 10),
@@ -59,7 +61,6 @@ class WorkOrderView(tk.Frame):
         table_container = tk.Frame(self, bg="#FFFFFF", highlightbackground="#DADCE0", highlightthickness=1)
         table_container.pack(fill="both", expand=True, padx=20, pady=10)
 
-        # Add new columns: Operator, Failure Report Time
         cols = ("id", "title", "equipment", "operator", "failure_time", "technician", "status", "start", "end")
         self.tree = ttk.Treeview(table_container, columns=cols, show="headings", height=18)
 
@@ -124,8 +125,6 @@ class WorkOrderView(tk.Frame):
             operator_name = wo.operator.full_name if wo.operator else "-"
             failure_time_str = wo.failure_report_time.strftime("%Y-%m-%d %H:%M") if wo.failure_report_time else "-"
 
-            type_fa = {"PM": "PM", "BREAKDOWN": "خرابی", "INSPECTION": "بازرسی"}.get(wo.type.name, wo.type.name)
-
             status_fa = {
                 "PENDING": "در انتظار",
                 "IN_PROGRESS": "در حال انجام",
@@ -148,6 +147,12 @@ class WorkOrderView(tk.Frame):
             messagebox.showwarning("هشدار", "لطفاً یک کار انتخاب کنید.")
             return None
         return int(self.tree.item(sel[0])["values"][0])
+
+    def _emergency_work(self):
+        dlg = EmergencyWorkOrderDialog(self, equipment_repo=None, preselected_equipment=None)
+        self.wait_window(dlg)
+        if dlg.result:
+            self._load()
 
     def _export(self):
         selected_id = None
@@ -172,16 +177,17 @@ class WorkOrderView(tk.Frame):
             else:
                 messagebox.showerror("خطا", msg)
 
+    # CORRECTED: Direct completion without parts dialog
     def _complete_work(self):
         wid = self._selected_id()
         if not wid:
             return
-        # Open parts selection dialog
-        from views.parts_selection_dialog import PartsSelectionDialog
-        dlg = PartsSelectionDialog(self, self.wo_repo, wid)
-        self.wait_window(dlg)
-        if dlg.result:
+        ok, msg = self.wo_repo.complete_work(wid)
+        if ok:
+            messagebox.showinfo("موفق", msg)
             self._load()
+        else:
+            messagebox.showerror("خطا", msg)
 
     def _approve_work(self):
         wid = self._selected_id()

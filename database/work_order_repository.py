@@ -188,13 +188,14 @@ class WorkOrderRepository:
             # Deduct spare parts if any
             low_stock = []
             if used_parts_list:
-                success, msg, low_stock = self._deduct_spare_parts(work_order_id, used_parts_list)
+                success, msg, low_stock = self.deduct_spare_parts(work_order_id,
+                                                                  used_parts_list)  # Fixed: no underscore
                 if not success:
                     return False, msg
 
             wo.status = WorkOrderStatus.COMPLETED
-            wo.completed_at = datetime.now()
-            wo.completion_notes = description
+            wo.end_time = datetime.now()  # set end_time
+            wo.description = description or wo.description
             if parts_used:
                 wo.parts_used = parts_used
 
@@ -202,7 +203,7 @@ class WorkOrderRepository:
             if wo.schedule_id:
                 from database.pm_repository import PMRepository
                 pm_repo = PMRepository()
-                pm_repo.update_after_completion(wo.schedule_id, wo.completed_at)
+                pm_repo.update_after_completion(wo.schedule_id, wo.end_time)
 
             db.commit()
 
@@ -264,5 +265,41 @@ class WorkOrderRepository:
                     'status': wo.status.value
                 }
             return None
+        finally:
+            db.close()
+    def create_from_pm(self, pm_schedule, due_date: datetime, created_by_user_id: int = None) -> tuple[bool, str]:
+        """
+        Automatically create a work order from a PM schedule that is due.
+        pm_schedule: a PMSchedule object (from database)
+        due_date: the scheduled_date for the work order (typically PM.next_due).
+        created_by_user_id: optional user id for the technician (if the PM has a technician).
+        """
+        db = SessionLocal()
+        try:
+            # Use the PM's technician if assigned, otherwise keep None
+            technician_id = pm_schedule.technician_id if pm_schedule.technician_id else None
+
+            wo = WorkOrder(
+                equipment_id=pm_schedule.equipment_id,
+                schedule_id=pm_schedule.id,
+                type=WorkOrderType.PREVENTIVE,
+                status=WorkOrderStatus.PENDING,
+                priority=WorkOrderPriority.MEDIUM,
+                technician_id=technician_id,
+                title=f"[PM] {pm_schedule.title}",
+                description=f"کار پیشگیرانه خودکار بر اساس برنامه PM: {pm_schedule.title}\n"
+                            f"چک‌لیست: {pm_schedule.checklist or 'ندارد'}\n"
+                            f"قطعات مورد نیاز: {pm_schedule.parts_required or 'ندارد'}",
+                parts_used=None,
+                scheduled_date=due_date,
+                created_at=datetime.utcnow(),
+            )
+            db.add(wo)
+            db.commit()
+            db.refresh(wo)
+            return True, "Work order created from PM schedule."
+        except Exception as e:
+            db.rollback()
+            return False, f"Error: {e}"
         finally:
             db.close()

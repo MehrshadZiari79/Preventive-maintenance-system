@@ -9,6 +9,7 @@ from database.db import Base
 class WorkOrderType(enum.Enum):
     PREVENTIVE = "preventive"
     CORRECTIVE = "corrective"
+    EMERGENCY = "emergency"          # added emergency type
     INSPECTION = "inspection"
     PM = "pm"
 
@@ -42,11 +43,13 @@ class WorkOrder(Base):
     technician_id  = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     supervisor_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    # NEW FIELDS
+    # NEW FIELD for emergency work order origin
+    emergency_reported_by = Column(String(100), nullable=True)   # full name or username of reporter
+
     operator_id        = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     failure_report_time = Column(DateTime, nullable=True)
     operator_notes     = Column(Text, nullable=True)
-    operator_signature = Column(Text, nullable=True)   # base64 or text
+    operator_signature = Column(Text, nullable=True)
 
     title            = Column(String(200), nullable=False)
     description      = Column(Text, nullable=True)

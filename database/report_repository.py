@@ -21,6 +21,7 @@ class ReportRepository:
                 func.sum(case((WorkOrder.status == WorkOrderStatus.IN_PROGRESS, 1), else_=0)).label("in_progress"),
                 func.sum(case((WorkOrder.type.in_([WorkOrderType.PREVENTIVE, WorkOrderType.PM]), 1), else_=0)).label("pm_total"),
                 func.sum(case((WorkOrder.type == WorkOrderType.CORRECTIVE, 1), else_=0)).label("cm_total"),
+                func.sum(case((WorkOrder.type == WorkOrderType.EMERGENCY, 1), else_=0)).label("emergency_total"),
             ).one()
 
             now = datetime.now()
@@ -57,6 +58,7 @@ class ReportRepository:
                 "completed_work_orders": wo_stats.completed or 0,
                 "pending_work_orders": wo_stats.pending or 0,
                 "in_progress_work_orders": wo_stats.in_progress or 0,
+                "emergency_work_orders": wo_stats.emergency_total or 0,
                 "overdue_work_orders": overdue,
                 "total_equipment": eq_stats.total_eq or 0,
                 "operational_equipment": eq_stats.operational or 0,
@@ -101,14 +103,15 @@ class ReportRepository:
             wo_agg = session.query(
                 func.count(WorkOrder.id).label("total"),
                 func.sum(case((WorkOrder.status == WorkOrderStatus.COMPLETED, 1), else_=0)).label("completed"),
-                func.sum(case((WorkOrder.type.in_([WorkOrderType.PREVENTIVE, WorkOrderType.PM]), 1), else_=0)).label("pm"),
+                func.sum(case((WorkOrder.type.in_([WorkOrderType.PREVENTIVE, WorkOrderType.PM]), 1), else_=0)).label(
+                    "pm"),
                 func.sum(case((WorkOrder.type == WorkOrderType.CORRECTIVE, 1), else_=0)).label("cm"),
                 (func.avg(case((
                     and_(WorkOrder.start_time.isnot(None), WorkOrder.end_time.isnot(None)),
                     func.julianday(WorkOrder.end_time) - func.julianday(WorkOrder.start_time)
                 ), else_=None)) * 24).label("avg_repair_hours"),
                 (func.sum(case((
-                    WorkOrder.type == WorkOrderType.CORRECTIVE,
+                    WorkOrder.type.in_([WorkOrderType.CORRECTIVE, WorkOrderType.EMERGENCY]),
                     func.julianday(WorkOrder.end_time) - func.julianday(WorkOrder.start_time)
                 ), else_=0)) * 24).label("total_downtime_hours"),
             ).filter(wo_filter).one()
@@ -145,7 +148,7 @@ class ReportRepository:
             for eq in query.all():
                 failures = session.query(func.count(WorkOrder.id)).filter(
                     WorkOrder.equipment_id == eq.id,
-                    WorkOrder.type == WorkOrderType.CORRECTIVE,
+                    WorkOrder.type.in_([WorkOrderType.CORRECTIVE, WorkOrderType.EMERGENCY]),
                     WorkOrder.status == WorkOrderStatus.COMPLETED,
                 )
                 if start_date:
@@ -175,7 +178,7 @@ class ReportRepository:
                     func.count(WorkOrder.id)
                 ).filter(
                     WorkOrder.equipment_id == eq.id,
-                    WorkOrder.type == WorkOrderType.CORRECTIVE,
+                    WorkOrder.type.in_([WorkOrderType.CORRECTIVE, WorkOrderType.EMERGENCY]),
                     WorkOrder.status == WorkOrderStatus.COMPLETED,
                     WorkOrder.start_time.isnot(None),
                     WorkOrder.end_time.isnot(None),
@@ -218,12 +221,13 @@ class ReportRepository:
                 })
             return results
 
-    # ==================== PM/CM RATIO & COMPLIANCE ====================
+    # ==================== PM/CM/EM RATIO & COMPLIANCE ====================
     def get_pm_cm_ratio(self, start_date=None, end_date=None):
         with self._session() as session:
             query = session.query(
                 func.sum(case((WorkOrder.type.in_([WorkOrderType.PREVENTIVE, WorkOrderType.PM]), 1), else_=0)).label("pm"),
                 func.sum(case((WorkOrder.type == WorkOrderType.CORRECTIVE, 1), else_=0)).label("cm"),
+                func.sum(case((WorkOrder.type == WorkOrderType.EMERGENCY, 1), else_=0)).label("emergency"),
             ).filter(WorkOrder.status == WorkOrderStatus.COMPLETED)
             if start_date:
                 query = query.filter(WorkOrder.created_at >= start_date)
@@ -232,12 +236,14 @@ class ReportRepository:
             row = query.one()
             pm = row.pm or 0
             cm = row.cm or 0
+            emergency = row.emergency or 0
             ratio = pm / cm if cm > 0 else float(pm)
             return {
                 "preventive_count": pm,
                 "corrective_count": cm,
+                "emergency_count": emergency,
                 "ratio": round(ratio, 2),
-                "total": pm + cm,
+                "total": pm + cm + emergency,
             }
 
     def get_schedule_compliance(self, start_date=None, end_date=None):
@@ -328,7 +334,7 @@ class ReportRepository:
                 Equipment.name,
                 Equipment.criticality_level,
                 func.sum(case((
-                    and_(WorkOrder.type == WorkOrderType.CORRECTIVE, WorkOrder.created_at >= cutoff), 1), else_=0)).label("recent_failures"),
+                    and_(WorkOrder.type.in_([WorkOrderType.CORRECTIVE, WorkOrderType.EMERGENCY]), WorkOrder.created_at >= cutoff), 1), else_=0)).label("recent_failures"),
                 func.avg(case((
                     and_(WorkOrder.start_time.isnot(None), WorkOrder.end_time.isnot(None)),
                     func.julianday(WorkOrder.end_time) - func.julianday(WorkOrder.start_time)
@@ -482,7 +488,7 @@ class ReportRepository:
             func.sum(func.julianday(WorkOrder.end_time) - func.julianday(WorkOrder.start_time)) * 24
         ).filter(
             WorkOrder.equipment_id == equipment_id,
-            WorkOrder.type == WorkOrderType.CORRECTIVE,
+            WorkOrder.type.in_([WorkOrderType.CORRECTIVE, WorkOrderType.EMERGENCY]),
             WorkOrder.start_time.isnot(None),
             WorkOrder.end_time.isnot(None),
         )
@@ -528,4 +534,4 @@ class ReportRepository:
         row = query.one()
         total = row.total or 1
         passed = row.passed or 0
-        return (passed / total) * 1
+        return (passed / total) * 100

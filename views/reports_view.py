@@ -1,4 +1,5 @@
-# views/reports_view.py
+# views/reports_view.py (full corrected version)
+
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkcalendar import DateEntry
@@ -13,9 +14,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
+from sqlalchemy import func
 
 from database.report_repository import ReportRepository
 from database.equipment_repository import EquipmentRepository
+from database.work_order import WorkOrder, WorkOrderType
 
 # Persian status mapping
 STATUS_FA = {
@@ -173,21 +176,22 @@ class ReportsView(ttk.Frame):
         ttk.Label(card, text=value, font=("Tahoma", 24, "bold"), background=bg, foreground='white').pack()
         ttk.Label(card, text=subtitle, font=("Tahoma", 8), background=bg, foreground='white').pack(pady=(0,5))
 
-    # -------------------- Equipment Performance Tab --------------------
+    # -------------------- Equipment Performance Tab (with EM column) --------------------
     def _load_equipment_performance(self):
         for w in self.equipment_frame.winfo_children():
             if not isinstance(w, ttk.Frame) or w != self.equipment_frame.winfo_children()[0]:
                 w.destroy()
-        # Treeview
         tree_frame = ttk.Frame(self.equipment_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        columns = ("id", "name", "status", "total_wo", "completed", "pm", "cm", "mtbf", "mttr", "downtime")
+        columns = ("id", "name", "status", "total_wo", "completed", "pm", "cm", "em", "mtbf", "mttr", "downtime")
         self.equipment_tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=15)
-        for col, text, width in [
+        col_defs = [
             ("id", "ID", 50), ("name", "نام تجهیز", 200), ("status", "وضعیت", 100),
             ("total_wo", "کل WO", 80), ("completed", "تکمیل شده", 100), ("pm", "PM", 60),
-            ("cm", "CM", 60), ("mtbf", "MTBF (ساعت)", 100), ("mttr", "MTTR (ساعت)", 100),
-            ("downtime", "زمان توقف (ساعت)", 120)]:
+            ("cm", "CM", 60), ("em", "EM", 60), ("mtbf", "MTBF (ساعت)", 100),
+            ("mttr", "MTTR (ساعت)", 100), ("downtime", "زمان توقف (ساعت)", 120)
+        ]
+        for col, text, width in col_defs:
             self.equipment_tree.heading(col, text=text)
             self.equipment_tree.column(col, width=width)
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.equipment_tree.yview)
@@ -196,18 +200,24 @@ class ReportsView(ttk.Frame):
         vsb.pack(side="right", fill="y")
         self.equipment_tree.bind("<Double-1>", self._open_equipment_detail)
 
-        # Load data
+        # Load data including EM counts
         equipments = self.eq_repo.get_all_equipment()
-        for eq in equipments:
-            report = self.report_repo.get_equipment_report(eq['id'])
-            if report:
-                self.equipment_tree.insert("", tk.END, values=(
-                    report['equipment_id'], report['equipment_name'], report['equipment_status'],
-                    report['total_work_orders'], report['completed_work_orders'],
-                    report['pm_work_orders'], report['cm_work_orders'],
-                    f"{report['mtbf_hours']:.1f}", f"{report['mttr_hours']:.1f}",
-                    f"{report['total_downtime_hours']:.1f}"
-                ))
+        with self.report_repo._session() as session:
+            for eq in equipments:
+                report = self.report_repo.get_equipment_report(eq['id'])
+                if report:
+                    em_count = session.query(func.count(WorkOrder.id)).filter(
+                        WorkOrder.equipment_id == eq['id'],
+                        WorkOrder.type == WorkOrderType.EMERGENCY
+                    ).scalar() or 0
+                    self.equipment_tree.insert("", tk.END, values=(
+                        report['equipment_id'], report['equipment_name'], report['equipment_status'],
+                        report['total_work_orders'], report['completed_work_orders'],
+                        report['pm_work_orders'], report['cm_work_orders'],
+                        em_count,
+                        f"{report['mtbf_hours']:.1f}", f"{report['mttr_hours']:.1f}",
+                        f"{report['total_downtime_hours']:.1f}"
+                    ))
 
     # -------------------- KPI Analysis Tab --------------------
     def _load_kpi_analysis(self, start_date, end_date):
@@ -224,17 +234,19 @@ class ReportsView(ttk.Frame):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # PM/CM Ratio
+        # PM/CM/EM Ratio
         pm_cm = self.report_repo.get_pm_cm_ratio(start_date, end_date)
-        fig1 = Figure(figsize=(8,4))
+        fig1 = Figure(figsize=(8, 4))
         ax1 = fig1.add_subplot(111)
-        if pm_cm['preventive_count'] > 0 or pm_cm['corrective_count'] > 0:
-            ax1.bar(['Preventive (PM)', 'Corrective (CM)'], [pm_cm['preventive_count'], pm_cm['corrective_count']], color=['#4CAF50','#F44336'])
+        if pm_cm['preventive_count'] > 0 or pm_cm['corrective_count'] > 0 or pm_cm['emergency_count'] > 0:
+            categories = ['Preventive (PM)', 'Corrective (CM)', 'Emergency (EM)']
+            values = [pm_cm['preventive_count'], pm_cm['corrective_count'], pm_cm['emergency_count']]
+            ax1.bar(categories, values, color=['#4CAF50', '#F44336', '#FF9800'])
             ax1.set_ylabel('Count')
-            ax1.set_title(f"PM / CM Ratio: {pm_cm['ratio']:.2f}")
+            ax1.set_title(f"PM/CM/EM Ratio (PM/CM = {pm_cm['ratio']:.2f})")
             ax1.grid(True, alpha=0.3)
         else:
-            ax1.text(0.5,0.5,'No Data', ha='center', va='center')
+            ax1.text(0.5, 0.5, 'No Data', ha='center', va='center')
         canvas1 = FigureCanvasTkAgg(fig1, scrollable)
         canvas1.draw()
         canvas1.get_tk_widget().pack(pady=10)
@@ -310,7 +322,7 @@ class ReportsView(ttk.Frame):
         self.tech_tree = tree
         tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    # -------------------- Trends Tab --------------------
+    # -------------------- Trends Tab (with EM line) --------------------
     def _load_trends(self):
         for w in self.trend_frame.winfo_children():
             if not isinstance(w, ttk.Frame) or w != self.trend_frame.winfo_children()[0]:
@@ -325,13 +337,17 @@ class ReportsView(ttk.Frame):
         for item in trend_data:
             key = f"{item['year']}-{item['month']:02d}"
             if key not in months:
-                months[key] = {'PREVENTIVE':0, 'PM':0, 'CORRECTIVE':0}
-            months[key][item['type']] = item['count']
+                months[key] = {'PREVENTIVE':0, 'PM':0, 'CORRECTIVE':0, 'EMERGENCY':0}
+            typ = item['type']
+            if typ in months[key]:
+                months[key][typ] += item['count']
         x = list(months.keys())
         preventive = [months[m].get('PREVENTIVE',0) + months[m].get('PM',0) for m in x]
         corrective = [months[m].get('CORRECTIVE',0) for m in x]
+        emergency = [months[m].get('EMERGENCY',0) for m in x]   # added EM line
         ax.plot(x, preventive, marker='o', label='Preventive', color='#4CAF50')
         ax.plot(x, corrective, marker='s', label='Corrective', color='#F44336')
+        ax.plot(x, emergency, marker='^', label='Emergency', color='#FF9800')   # EM line
         ax.set_xlabel('Month')
         ax.set_ylabel('Count')
         ax.set_title('Work Order Trends (Last 6 Months)')
@@ -381,20 +397,29 @@ class ReportsView(ttk.Frame):
             for child in self.equipment_tree.get_children():
                 values = self.equipment_tree.item(child)['values']
                 data.append({
-                    "ID": values[0], "نام تجهیز": values[1], "وضعیت": values[2],
-                    "کل WO": values[3], "تکمیل شده": values[4], "PM": values[5],
-                    "CM": values[6], "MTBF (ساعت)": values[7], "MTTR (ساعت)": values[8],
-                    "زمان توقف (ساعت)": values[9]
+                    "ID": values[0],
+                    "نام تجهیز": values[1],
+                    "وضعیت": values[2],
+                    "کل WO": values[3],
+                    "تکمیل شده": values[4],
+                    "PM": values[5],
+                    "CM": values[6],
+                    "EM": values[7],          # new
+                    "MTBF (ساعت)": values[8],
+                    "MTTR (ساعت)": values[9],
+                    "زمان توقف (ساعت)": values[10]
                 })
         elif tab_title == "عملکرد تکنسین‌ها" and hasattr(self, 'tech_tree'):
             for child in self.tech_tree.get_children():
                 values = self.tech_tree.item(child)['values']
                 data.append({
-                    "تکنسین": values[0], "کل وظایف": values[1], "تکمیل شده": values[2],
-                    "نرخ تکمیل (%)": values[3], "میانگین زمان (ساعت)": values[4]
+                    "تکنسین": values[0],
+                    "کل وظایف": values[1],
+                    "تکمیل شده": values[2],
+                    "نرخ تکمیل (%)": values[3],
+                    "میانگین زمان (ساعت)": values[4]
                 })
         elif tab_title == "داشبورد کلی":
-            # Collect KPI cards data – simplified: just summary numbers
             summary = self.report_repo.get_kpi_summary()
             backlog = self.report_repo.get_backlog_analysis()
             data.append({
@@ -418,12 +443,15 @@ class ReportsView(ttk.Frame):
             compliance = self.report_repo.get_schedule_compliance(start, end)
             risk = self.report_repo.get_equipment_risk_score()
             data.append({
-                "PM": pm_cm['preventive_count'], "CM": pm_cm['corrective_count'],
-                "نسبت PM/CM": pm_cm['ratio'], "کل وظایف برنامه": compliance['total_tasks'],
-                "انجام به موقع": compliance['on_time'], "تاخیر": compliance['late'],
+                "PM": pm_cm['preventive_count'],
+                "CM": pm_cm['corrective_count'],
+                "EM": pm_cm['emergency_count'],
+                "نسبت PM/CM": pm_cm['ratio'],
+                "کل وظایف برنامه": compliance['total_tasks'],
+                "انجام به موقع": compliance['on_time'],
+                "تاخیر": compliance['late'],
                 "نرخ انطباق (%)": compliance['compliance_rate']
             })
-            # Add risk scores as separate rows
             for r in risk[:10]:
                 data.append({"تجهیز": r['equipment_name'], "امتیاز ریسک": r['risk_score'], "سطح": r['risk_level']})
         elif tab_title == "تحلیل هزینه":
@@ -432,15 +460,19 @@ class ReportsView(ttk.Frame):
             cost = self.report_repo.get_cost_analysis(start, end)
             for item in cost['breakdown']:
                 data.append({
-                    "نوع": item['type'], "هزینه کل": item['total_cost'],
-                    "درصد": item['percentage'], "هزینه قطعات": item['part_cost'],
+                    "نوع": item['type'],
+                    "هزینه کل": item['total_cost'],
+                    "درصد": item['percentage'],
+                    "هزینه قطعات": item['part_cost'],
                     "هزینه نیروی کار": item['labor_cost']
                 })
         elif tab_title == "روندها":
             trend = self.report_repo.get_monthly_trends(6)
             for item in trend:
                 data.append({
-                    "سال": item['year'], "ماه": item['month'], "نوع": item['type'],
+                    "سال": item['year'],
+                    "ماه": item['month'],
+                    "نوع": item['type'],
                     "تعداد": item['count']
                 })
         return data
@@ -456,7 +488,6 @@ class ReportsView(ttk.Frame):
         if not data:
             story.append(Paragraph("هیچ داده‌ای موجود نیست.", styles['Normal']))
         else:
-            # Create table
             headers = list(data[0].keys())
             table_data = [headers] + [[str(row.get(h, "")) for h in headers] for row in data]
             table = Table(table_data)
@@ -469,7 +500,7 @@ class ReportsView(ttk.Frame):
             story.append(table)
         doc.build(story)
 
-    # -------------------- Equipment Detail Dialog (unchanged but improved) --------------------
+    # -------------------- Equipment Detail Dialog --------------------
     def _open_equipment_detail(self, event):
         selection = self.equipment_tree.selection()
         if not selection:

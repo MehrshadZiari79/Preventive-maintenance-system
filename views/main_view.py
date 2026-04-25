@@ -17,7 +17,7 @@ from database.work_order_repository import WorkOrderRepository
 from database.inspection_repository import InspectionRepository
 from services.inspection_service import InspectionService
 from database.db import SessionLocal
-
+from services.auto_pm_service import AutoPMService
 # ==================== Theme Constants ====================
 BG = "#F0F4F8"
 WHITE = "#FFFFFF"
@@ -68,7 +68,13 @@ class MainView(tk.Tk):
 
         self._build_ui()
         self._show_view("dashboard")
-
+        # Start automatic PM work order generation service
+        self.auto_pm_service = AutoPMService(check_interval_seconds=3600)  # every hour
+        self.auto_pm_service.start()
+    def destroy(self):
+        if hasattr(self, 'auto_pm_service'):
+            self.auto_pm_service.stop()
+        super().destroy()
     def _set_fullscreen(self):
         """Set window to full screen and make it resizable."""
         self.attributes('-fullscreen', True)

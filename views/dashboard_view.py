@@ -1,8 +1,8 @@
 # views/dashboard_view.py
 """
-Dashboard View - Main landing page with KPIs, charts, and recent activities.
-All chart text is in English to avoid Persian font rendering issues.
-UI text (labels, buttons, listboxes) is in Persian.
+Dashboard View - Modern, professional, and responsive.
+All chart text is in English to avoid Persian font issues.
+All UI labels are in Persian.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-import numpy as np
 
 from database.report_repository import ReportRepository
 from database.equipment_repository import EquipmentRepository
@@ -20,7 +19,7 @@ from database.spare_parts_repository import SparePartsRepository
 from database.inspection_repository import InspectionRepository
 from database.db import SessionLocal
 
-# Theme (matches main_view)
+# ========== Theme (Matches main_view) ==========
 BG = "#F0F4F8"
 WHITE = "#FFFFFF"
 PRIMARY = "#1A73E8"
@@ -30,13 +29,19 @@ WARNING = "#F29900"
 TEXT = "#202124"
 SUBTLE = "#5F6368"
 BORDER = "#DADCE0"
+CARD_SHADOW = "#E0E0E0"
 
-FONT_TITLE = ("Tahoma", 14, "bold")
+FONT_TITLE = ("Tahoma", 16, "bold")
+FONT_SUBTITLE = ("Tahoma", 12, "bold")
 FONT_LABEL = ("Tahoma", 10, "bold")
 FONT_NORMAL = ("Tahoma", 10)
 FONT_SMALL = ("Tahoma", 9)
-FONT_KPI = ("Tahoma", 20, "bold")
+FONT_KPI = ("Tahoma", 24, "bold")
+FONT_KPI_LABEL = ("Tahoma", 10)
 
+# views/dashboard_view.py
+"""Professional Dashboard – now fully responsive in fullscreen."""
+# ... (same imports and theme constants as your current file) ...
 
 class DashboardView(ttk.Frame):
     def __init__(self, parent, current_user):
@@ -53,13 +58,12 @@ class DashboardView(ttk.Frame):
         self._refresh_all()
 
     def _build_ui(self):
-        # Header with title and refresh button
-        header = tk.Frame(self, bg=BG)
+        header = tk.Frame(self, bg=BG, height=70)
         header.pack(fill=tk.X, padx=20, pady=(10, 0))
+        header.pack_propagate(False)
 
         tk.Label(header, text="📊  داشبورد مدیریت", font=FONT_TITLE,
                  bg=BG, fg=PRIMARY).pack(side=tk.RIGHT)
-
         refresh_btn = tk.Button(header, text="🔄 بروزرسانی", font=FONT_NORMAL,
                                 bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
                                 padx=15, pady=5, command=self._refresh_all)
@@ -70,166 +74,197 @@ class DashboardView(ttk.Frame):
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.scrollable = tk.Frame(self.canvas, bg=BG)
 
-        self.scrollable.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.create_window((0, 0), window=self.scrollable, anchor="nw")
+        # Make scrollable frame fill the canvas horizontally
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.scrollable, anchor="nw")
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
-
-        # Bind mousewheel
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+
+    def _on_canvas_configure(self, event):
+        """Update scrollable frame width to match canvas width."""
+        self.canvas.itemconfig(self.canvas_window, width=event.width)
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
+    # ... (rest of the class unchanged from your current file) ...
+
+    # ---------------------- Data Fetching ----------------------
     def _refresh_all(self):
-        # Clear existing widgets
         for w in self.scrollable.winfo_children():
             w.destroy()
 
-        # Fetch data
+        # Fetch all data
         self.kpi_data = self.report_repo.get_kpi_summary()
         self.backlog = self.report_repo.get_backlog_analysis()
         self.pm_cm = self.report_repo.get_pm_cm_ratio()
-        self.risk_data = self.report_repo.get_equipment_risk_score()[:5]  # top 5 risky equipments
+        self.risk_data = self.report_repo.get_equipment_risk_score()[:5]
 
-        # Recent work orders
         recent_wos = self.wo_repo.get_all(status_filter=None, type_filter=None)[:5]
-
-        # Low stock parts
         low_stock = self.sp_repo.get_low_stock()[:5]
-
-        # Upcoming PMs (next 7 days)
-        upcoming_pms = self.pm_repo.get_upcoming_pms(days=7)[:5]
-
-        # Recent inspections
+        upcoming_pms = self.pm_repo.get_upcoming_pms_dict(days=7)[:5]
         inspections = self.ins_repo.get_all_inspections()
         recent_ins = inspections[:5] if inspections else []
 
-        # Build UI sections
-        self._build_kpi_row()
-        self._build_charts_row()
-        self._build_recent_lists(recent_wos, low_stock, upcoming_pms, recent_ins)
+        # Build sections
+        self._build_kpi_grid()
+        self._build_charts_section()
+        self._build_lists_grid(recent_wos, low_stock, upcoming_pms, recent_ins)
         self._build_quick_actions()
 
-    def _build_kpi_row(self):
-        row_frame = tk.Frame(self.scrollable, bg=BG)
-        row_frame.pack(fill=tk.X, pady=10, padx=10)
+    # ---------------------- KPI Grid (2 rows, 4 cols) ----------------------
+    def _build_kpi_grid(self):
+        frame = tk.Frame(self.scrollable, bg=BG)
+        frame.pack(fill=tk.X, padx=20, pady=10)
 
-        completion_rate = self._calc_completion_rate()
+        completion_rate = (self.kpi_data['completed_work_orders'] / max(1, self.kpi_data['total_work_orders']) * 100)
         low_stock_count = len(self.sp_repo.get_low_stock())
         overdue_pm_count = self.pm_repo.get_overdue_count()
+        emergency_count = self.kpi_data.get('emergency_work_orders', 0)
 
         kpis = [
-            ("کل دستورات کار", self.kpi_data['total_work_orders'], PRIMARY),
+            ("دستورات کار", self.kpi_data['total_work_orders'], PRIMARY),
             ("تکمیل شده", self.kpi_data['completed_work_orders'], SUCCESS),
             ("نرخ تکمیل", f"{completion_rate:.1f}%", SUCCESS),
             ("انطباق PM", f"{self.kpi_data['pm_compliance_rate']:.1f}%", PRIMARY),
             ("قطعات کم‌موجود", low_stock_count, WARNING),
-            ("PM‌های معوق", overdue_pm_count, DANGER),
+            ("PM معوق", overdue_pm_count, DANGER),
+            ("اضطراری", emergency_count, DANGER),
+            ("تجهیزات", self.kpi_data['total_equipment'], PRIMARY),
         ]
 
+        # Arrange in 2 rows, 4 columns
         for i, (title, value, color) in enumerate(kpis):
-            card = tk.Frame(row_frame, bg=WHITE, highlightbackground=BORDER, highlightthickness=1, relief=tk.RAISED)
-            card.grid(row=0, column=i, padx=8, pady=5, sticky="nsew")
-            row_frame.grid_columnconfigure(i, weight=1)
+            row = i // 4
+            col = i % 4
+            self._create_kpi_card(frame, title, value, color, row, col)
 
-            tk.Label(card, text=title, font=FONT_SMALL, bg=WHITE, fg=SUBTLE).pack(pady=(10, 0))
-            tk.Label(card, text=str(value), font=FONT_KPI, bg=WHITE, fg=color).pack(pady=(0, 10))
+        # Configure grid columns to be equal width
+        for col in range(4):
+            frame.columnconfigure(col, weight=1)
 
-    def _calc_completion_rate(self):
-        total = self.kpi_data['total_work_orders']
-        completed = self.kpi_data['completed_work_orders']
-        return (completed / total * 100) if total > 0 else 0
+    def _create_kpi_card(self, parent, title, value, color, row, col):
+        card = tk.Frame(parent, bg=WHITE, relief=tk.RAISED, bd=0,
+                        highlightbackground=CARD_SHADOW, highlightthickness=1)
+        card.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
 
-    def _build_charts_row(self):
-        row_frame = tk.Frame(self.scrollable, bg=BG)
-        row_frame.pack(fill=tk.X, pady=10, padx=10)
+        tk.Label(card, text=title, font=FONT_KPI_LABEL,
+                bg=WHITE, fg=SUBTLE).pack(pady=(12, 0))
+        tk.Label(card, text=str(value), font=FONT_KPI,
+                bg=WHITE, fg=color).pack(pady=(0, 12))
 
-        # Chart 1: Work order trends (last 6 months) - English text only
+    # ---------------------- Charts Section (side by side) ----------------------
+    def _build_charts_section(self):
+        container = tk.Frame(self.scrollable, bg=BG)
+        container.pack(fill=tk.X, padx=20, pady=10)
+
+        # Row 1: Trend chart + Equipment status pie
+        row1 = tk.Frame(container, bg=BG)
+        row1.pack(fill=tk.X, pady=5)
+
+        # Chart 1: Work order trends (last 6 months)
         trends = self.report_repo.get_monthly_trends(6)
         if trends:
-            fig1 = Figure(figsize=(5, 3), dpi=80)
+            fig1 = Figure(figsize=(5.5, 3.2), dpi=90)
             ax1 = fig1.add_subplot(111)
             months = {}
             for t in trends:
                 key = f"{t['year']}-{t['month']:02d}"
                 if key not in months:
-                    months[key] = {'PREVENTIVE': 0, 'PM': 0, 'CORRECTIVE': 0, 'INSPECTION': 0}
+                    months[key] = {'PREVENTIVE': 0, 'PM': 0, 'CORRECTIVE': 0, 'EMERGENCY': 0}
                 typ = t['type']
                 if typ in months[key]:
                     months[key][typ] += t['count']
             x = list(months.keys())
             preventive = [months[m].get('PREVENTIVE', 0) + months[m].get('PM', 0) for m in x]
             corrective = [months[m].get('CORRECTIVE', 0) for m in x]
+            emergency = [months[m].get('EMERGENCY', 0) for m in x]
             ax1.plot(x, preventive, marker='o', label='Preventive', color=SUCCESS)
             ax1.plot(x, corrective, marker='s', label='Corrective', color=DANGER)
-            ax1.set_title("Work Order Trends", fontsize=10)
+            ax1.plot(x, emergency, marker='^', label='Emergency', color=WARNING)
+            ax1.set_title("Work Order Trends (Last 6 Months)", fontsize=10)
             ax1.legend(fontsize=8)
-            ax1.tick_params(axis='x', rotation=45, labelsize=8)
-            canvas1 = FigureCanvasTkAgg(fig1, row_frame)
+            ax1.tick_params(axis='x', rotation=45, labelsize=7)
+            canvas1 = FigureCanvasTkAgg(fig1, row1)
             canvas1.draw()
             canvas1.get_tk_widget().pack(side=tk.LEFT, padx=5, fill=tk.BOTH, expand=True)
 
-        # Chart 2: Equipment status distribution - English text only
+        # Chart 2: Equipment status pie
         eq_stats = self.eq_repo.get_stats()
         labels = ['Operational', 'Maintenance', 'Breakdown', 'Inactive']
         sizes = [eq_stats['operational'], eq_stats['maintenance'], eq_stats['breakdown'], eq_stats['inactive']]
         colors = [SUCCESS, WARNING, DANGER, SUBTLE]
-        fig2 = Figure(figsize=(4, 3), dpi=80)
+        fig2 = Figure(figsize=(4, 3.2), dpi=90)
         ax2 = fig2.add_subplot(111)
         ax2.pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
         ax2.set_title("Equipment Status", fontsize=10)
-        canvas2 = FigureCanvasTkAgg(fig2, row_frame)
+        canvas2 = FigureCanvasTkAgg(fig2, row1)
         canvas2.draw()
         canvas2.get_tk_widget().pack(side=tk.LEFT, padx=5, fill=tk.BOTH, expand=True)
 
-        # Chart 3: PM/CM ratio - English text only
-        fig3 = Figure(figsize=(3, 3), dpi=80)
+        # Row 2: PM/CM/EM bar chart (could also include a small risk table)
+        row2 = tk.Frame(container, bg=BG)
+        row2.pack(fill=tk.X, pady=5)
+
+        fig3 = Figure(figsize=(4, 3), dpi=90)
         ax3 = fig3.add_subplot(111)
-        ax3.bar(['PM', 'CM'], [self.pm_cm['preventive_count'], self.pm_cm['corrective_count']], color=[SUCCESS, DANGER])
-        ax3.set_title(f"PM/CM Ratio = {self.pm_cm['ratio']:.2f}", fontsize=10)
-        canvas3 = FigureCanvasTkAgg(fig3, row_frame)
+        pm = self.pm_cm.get('preventive_count', 0)
+        cm = self.pm_cm.get('corrective_count', 0)
+        em = self.pm_cm.get('emergency_count', 0)
+        ax3.bar(['PM', 'CM', 'EM'], [pm, cm, em], color=[SUCCESS, DANGER, WARNING])
+        ratio = (pm / cm) if cm > 0 else float(pm)
+        ax3.set_title(f"PM/CM/EM Ratio (PM/CM = {ratio:.2f})", fontsize=10)
+        ax3.set_ylabel("Count")
+        canvas3 = FigureCanvasTkAgg(fig3, row2)
         canvas3.draw()
         canvas3.get_tk_widget().pack(side=tk.LEFT, padx=5, fill=tk.BOTH, expand=True)
 
-    def _build_recent_lists(self, recent_wos, low_stock, upcoming_pms, recent_ins):
-        row_frame = tk.Frame(self.scrollable, bg=BG)
-        row_frame.pack(fill=tk.BOTH, expand=True, pady=10, padx=10)
+        # Optional: Top 5 risk equipment (small table)
+        if self.risk_data:
+            risk_frame = tk.Frame(row2, bg=WHITE, relief=tk.RAISED, bd=0,
+                                  highlightbackground=CARD_SHADOW, highlightthickness=1)
+            risk_frame.pack(side=tk.RIGHT, padx=5, fill=tk.BOTH, expand=True)
+            tk.Label(risk_frame, text="تجهیزات پرریسک", font=FONT_SUBTITLE,
+                     bg=WHITE, fg=TEXT).pack(pady=5)
+            for eq in self.risk_data[:4]:
+                lbl = tk.Label(risk_frame, text=f"{eq['equipment_name']} - {eq['risk_score']:.0f}",
+                               font=FONT_SMALL, bg=WHITE, fg=DANGER if eq['risk_score'] > 70 else WARNING)
+                lbl.pack(anchor="w", padx=10, pady=2)
 
-        # Column 1: Recent Work Orders
-        frame1 = tk.LabelFrame(row_frame, text="📝 دستورکارهای اخیر", font=FONT_LABEL, bg=WHITE, fg=TEXT)
-        frame1.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-        self._build_listbox(frame1, recent_wos, self._format_work_order)
+    # ---------------------- Lists Grid (2x2) ----------------------
+    def _build_lists_grid(self, recent_wos, low_stock, upcoming_pms, recent_ins):
+        container = tk.Frame(self.scrollable, bg=BG)
+        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        # Column 2: Low Stock Spare Parts
-        frame2 = tk.LabelFrame(row_frame, text="⚠️ قطعات با موجودی کم", font=FONT_LABEL, bg=WHITE, fg=TEXT)
-        frame2.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-        self._build_listbox(frame2, low_stock, self._format_spare_part)
+        # Row 1: Work orders and Low stock
+        row1 = tk.Frame(container, bg=BG)
+        row1.pack(fill=tk.BOTH, expand=True, pady=5)
+        self._create_list_panel(row1, "📝 دستورکارهای اخیر", recent_wos, self._format_work_order, side=tk.LEFT)
+        self._create_list_panel(row1, "⚠️ قطعات کم‌موجود", low_stock, self._format_spare_part, side=tk.RIGHT)
 
-        # Column 3: Upcoming PMs
-        frame3 = tk.LabelFrame(row_frame, text="📅 برنامه‌های نزدیک PM", font=FONT_LABEL, bg=WHITE, fg=TEXT)
-        frame3.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
-        self._build_listbox(frame3, upcoming_pms, self._format_pm)
+        # Row 2: Upcoming PMs and Recent inspections
+        row2 = tk.Frame(container, bg=BG)
+        row2.pack(fill=tk.BOTH, expand=True, pady=5)
+        self._create_list_panel(row2, "📅 برنامه‌های نزدیک PM", upcoming_pms, self._format_pm, side=tk.LEFT)
+        self._create_list_panel(row2, "🔍 بازرسی‌های اخیر", recent_ins, self._format_inspection, side=tk.RIGHT)
 
-        # Column 4: Recent Inspections
-        frame4 = tk.LabelFrame(row_frame, text="🔍 بازرسی‌های اخیر", font=FONT_LABEL, bg=WHITE, fg=TEXT)
-        frame4.grid(row=0, column=3, padx=5, pady=5, sticky="nsew")
+    def _create_list_panel(self, parent, title, items, formatter, side=tk.LEFT):
+        frame = tk.LabelFrame(parent, text=title, font=FONT_LABEL,
+                              bg=WHITE, fg=TEXT, padx=5, pady=5)
+        frame.pack(side=side, fill=tk.BOTH, expand=True, padx=5)
 
-        for i in range(4):
-            row_frame.grid_columnconfigure(i, weight=1)
-        row_frame.grid_rowconfigure(0, weight=1)
-
-        self._build_listbox(frame4, recent_ins, self._format_inspection)
-
-    def _build_listbox(self, parent, items, formatter):
-        listbox = tk.Listbox(parent, bg=WHITE, fg=TEXT, font=FONT_SMALL, height=8, relief="flat", highlightbackground=BORDER)
-        listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        listbox = tk.Listbox(frame, bg=WHITE, fg=TEXT, font=FONT_SMALL,
+                             height=8, relief="flat", highlightbackground=BORDER)
+        listbox.pack(fill=tk.BOTH, expand=True)
         for item in items:
             listbox.insert(tk.END, formatter(item))
-        listbox.bind("<Double-1>", lambda e, items=items: self._on_listbox_double_click(items, listbox.curselection()))
+        listbox.bind("<Double-1>", lambda e, it=items, lb=listbox: self._on_listbox_double_click(it, lb.curselection()))
 
+    # ---------------------- Formatting Helpers ----------------------
     def _format_work_order(self, wo):
         eq_name = wo.equipment.name if wo.equipment else "—"
         status_map = {"pending": "در انتظار", "in_progress": "در حال انجام", "completed": "تکمیل شده"}
@@ -240,9 +275,10 @@ class DashboardView(ttk.Frame):
         return f"{part.part_number} - {part.name} (موجودی: {part.current_stock}/{part.min_stock})"
 
     def _format_pm(self, pm):
-        eq_name = pm.equipment.name if pm.equipment else "—"
-        due = pm.next_due.strftime("%Y-%m-%d") if pm.next_due else "—"
-        return f"{pm.title} - {eq_name} (سررسید: {due})"
+        eq_name = pm.get("equipment_name", "—")
+        due = pm.get("next_due", "—")
+        title = pm.get("title", "")
+        return f"{title} - {eq_name} (سررسید: {due})"
 
     def _format_inspection(self, ins):
         eq_name = ins.equipment.name if ins.equipment else "—"
@@ -254,18 +290,17 @@ class DashboardView(ttk.Frame):
     def _on_listbox_double_click(self, items, selection):
         if not selection:
             return
-        idx = selection[0]
-        item = items[idx]
-        # Optional: open detail dialog – can be extended later
+        # Optionally open detail dialog (not implemented)
         pass
 
+    # ---------------------- Quick Actions ----------------------
     def _build_quick_actions(self):
-        actions_frame = tk.LabelFrame(self.scrollable, text="عملیات سریع", font=FONT_LABEL, bg=WHITE, fg=TEXT)
-        actions_frame.pack(fill=tk.X, pady=10, padx=10)
+        actions_frame = tk.LabelFrame(self.scrollable, text="عملیات سریع", font=FONT_LABEL,
+                                      bg=WHITE, fg=TEXT, padx=10, pady=10)
+        actions_frame.pack(fill=tk.X, padx=20, pady=15)
 
         btn_frame = tk.Frame(actions_frame, bg=WHITE)
-        btn_frame.pack(pady=10)
-
+        btn_frame.pack()
         buttons = [
             ("➕ دستور کار جدید", self._goto_work_orders),
             ("⚙️ افزودن تجهیز", self._goto_equipment),
@@ -273,26 +308,21 @@ class DashboardView(ttk.Frame):
             ("📅 برنامه PM جدید", self._goto_pm),
             ("🔍 بازرسی جدید", self._goto_inspections),
         ]
-
         for text, cmd in buttons:
             btn = tk.Button(btn_frame, text=text, font=FONT_NORMAL,
                             bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
-                            padx=12, pady=5, command=cmd)
+                            padx=12, pady=6, command=cmd)
             btn.pack(side=tk.LEFT, padx=8)
 
-    # Navigation methods
+    # ---------------------- Navigation ----------------------
     def _goto_work_orders(self):
         self._navigate("work_orders")
-
     def _goto_equipment(self):
         self._navigate("equipment")
-
     def _goto_spare_parts(self):
         self._navigate("spare_parts")
-
     def _goto_pm(self):
         self._navigate("pm_schedule")
-
     def _goto_inspections(self):
         self._navigate("inspections")
 

@@ -273,7 +273,32 @@ class PMRepository:
             "parts_required":     s.parts_required or "",
             "created_at":         s.created_at.strftime("%Y-%m-%d") if s.created_at else "",
         }
+    def get_due_schedules(self, target_date: datetime) -> list:
+        """
+        Return active PM schedules where next_due <= target_date.
+        Used for auto‑generation of work orders.
+        """
+        with self._session() as session:
+            return session.query(PMSchedule).filter(
+                PMSchedule.is_active == True,
+                PMSchedule.next_due <= target_date
+            ).all()
 
+    def update_next_due_date(self, pm_id: int, completion_date: datetime) -> tuple[bool, str]:
+        """
+        Update last_done and next_due after a work order is generated (auto or manual).
+        """
+        try:
+            with self._session() as session:
+                s = session.query(PMSchedule).filter(PMSchedule.id == pm_id).first()
+                if not s:
+                    return False, "PM schedule not found."
+                s.last_done = completion_date
+                s.next_due = completion_date + timedelta(days=s.interval_days)
+                session.commit()
+            return True, "Next due date updated."
+        except Exception as e:
+            return False, f"Error: {e}"
     def get_upcoming_pms(self, days=7):
         """Return PM schedules with next_due in the next `days` days (as ORM objects)."""
         with self._session() as session:
@@ -284,6 +309,20 @@ class PMRepository:
                 PMSchedule.next_due >= now,
                 PMSchedule.next_due <= future
             ).order_by(PMSchedule.next_due).all()
+
+    def get_upcoming_pms_dict(self, days=7):
+        """Return upcoming PM schedules as dictionaries (with equipment name, etc.)"""
+        with self._session() as session:
+            now = datetime.now()
+            future = now + timedelta(days=days)
+            pms = session.query(PMSchedule).options(
+                joinedload(PMSchedule.equipment)
+            ).filter(
+                PMSchedule.is_active == True,
+                PMSchedule.next_due >= now,
+                PMSchedule.next_due <= future
+            ).order_by(PMSchedule.next_due).all()
+            return [self._to_dict(pm) for pm in pms]
 
     def get_overdue_count(self) -> int:
         """Count of active PM schedules with next_due < now."""
