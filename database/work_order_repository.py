@@ -1,3 +1,4 @@
+# database/work_order_repository.py
 from sqlalchemy.orm import joinedload
 from datetime import datetime
 from typing import List, Optional
@@ -41,10 +42,10 @@ class WorkOrderRepository:
             db.add(wo)
             db.commit()
             db.refresh(wo)
-            return True, "کار با موفقیت ثبت شد."  # Only two values
+            return True, "کار با موفقیت ثبت شد."
         except Exception as e:
             db.rollback()
-            return False, f"خطا: {str(e)}"  # Only two values
+            return False, f"خطا: {str(e)}"
         finally:
             db.close()
 
@@ -94,7 +95,7 @@ class WorkOrderRepository:
                 joinedload(WorkOrder.equipment),
                 joinedload(WorkOrder.technician),
                 joinedload(WorkOrder.supervisor),
-                joinedload(WorkOrder.operator)   # new
+                joinedload(WorkOrder.operator)
             )
             if status_filter:
                 query = query.filter(WorkOrder.status == status_filter)
@@ -138,14 +139,7 @@ class WorkOrderRepository:
         finally:
             db.close()
 
-    # Add these methods to WorkOrderRepository
-
     def deduct_spare_parts(self, work_order_id: int, parts_list: list) -> tuple[bool, str, list]:
-        """
-        Deduct spare parts from inventory.
-        parts_list = [{"part_id": int, "quantity": int}, ...]
-        Returns (success, message, low_stock_parts)
-        """
         from database.spare_parts_repository import SparePartsRepository
         db = SessionLocal()
         low_stock_parts = []
@@ -160,7 +154,6 @@ class WorkOrderRepository:
                 if part.current_stock < qty:
                     return False, f"موجودی قطعه {part.part_number} کافی نیست. موجودی: {part.current_stock}", []
                 part.current_stock -= qty
-                # Log transaction
                 sp_repo.add_transaction({
                     'part_id': part_id,
                     'transaction_type': 'OUT',
@@ -185,32 +178,45 @@ class WorkOrderRepository:
             if not wo:
                 return False, "کار یافت نشد."
 
-            # Deduct spare parts if any
             low_stock = []
             if used_parts_list:
-                success, msg, low_stock = self.deduct_spare_parts(work_order_id,
-                                                                  used_parts_list)  # Fixed: no underscore
+                success, msg, low_stock = self.deduct_spare_parts(work_order_id, used_parts_list)
                 if not success:
                     return False, msg
 
             wo.status = WorkOrderStatus.COMPLETED
-            wo.end_time = datetime.now()  # set end_time
+            wo.end_time = datetime.now()
             wo.description = description or wo.description
             if parts_used:
                 wo.parts_used = parts_used
 
-            # Update PM schedule if this is a preventive work order
             if wo.schedule_id:
                 from database.pm_repository import PMRepository
                 pm_repo = PMRepository()
                 pm_repo.update_after_completion(wo.schedule_id, wo.end_time)
 
             db.commit()
-
             msg = "کار تکمیل شد."
             if low_stock:
                 msg += f"\n⚠️ هشدار: قطعات {', '.join(low_stock)} به حداقل موجودی رسیده‌اند."
             return True, msg
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
+
+    # ---------------------- NEW APPROVE METHOD ----------------------
+    def approve(self, work_order_id, supervisor_id):
+        db = SessionLocal()
+        try:
+            wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+            if not wo:
+                return False, "کار یافت نشد."
+            wo.status = WorkOrderStatus.APPROVED
+            wo.supervisor_id = supervisor_id
+            db.commit()
+            return True, "کار تایید شد."
         except Exception as e:
             db.rollback()
             return False, str(e)
@@ -250,14 +256,12 @@ class WorkOrderRepository:
             db.close()
 
     def find_by_schedule_and_date(self, pm_schedule_id: int, scheduled_date: datetime) -> Optional[dict]:
-        """Check if work order already exists for this PM schedule and date."""
         db = SessionLocal()
         try:
             wo = db.query(WorkOrder).filter(
                 WorkOrder.schedule_id == pm_schedule_id,
                 WorkOrder.scheduled_date == scheduled_date
             ).first()
-
             if wo:
                 return {
                     'id': wo.id,
@@ -267,18 +271,11 @@ class WorkOrderRepository:
             return None
         finally:
             db.close()
+
     def create_from_pm(self, pm_schedule, due_date: datetime, created_by_user_id: int = None) -> tuple[bool, str]:
-        """
-        Automatically create a work order from a PM schedule that is due.
-        pm_schedule: a PMSchedule object (from database)
-        due_date: the scheduled_date for the work order (typically PM.next_due).
-        created_by_user_id: optional user id for the technician (if the PM has a technician).
-        """
         db = SessionLocal()
         try:
-            # Use the PM's technician if assigned, otherwise keep None
             technician_id = pm_schedule.technician_id if pm_schedule.technician_id else None
-
             wo = WorkOrder(
                 equipment_id=pm_schedule.equipment_id,
                 schedule_id=pm_schedule.id,

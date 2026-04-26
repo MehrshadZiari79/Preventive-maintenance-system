@@ -90,7 +90,7 @@ class PMView(tk.Frame):
                   padx=14, pady=6, cursor="hand2",
                   command=self._generate_work_orders).pack(side="left", padx=8, pady=12)
 
-        tk.Button(hdr, text="📤  خروجی Excel / PDF", font=FONT_LABEL,
+        tk.Button(hdr, text="📤  Excel خروجی ", font=FONT_LABEL,
                   bg="#34A853", fg=WHITE, relief="flat",
                   padx=14, pady=6, cursor="hand2",
                   command=self._export).pack(side="left", padx=8, pady=12)

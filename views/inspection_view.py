@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 
+
 from services.inspection_service import InspectionService
 from views.inspection_dialog import (
     TemplateDialog,
@@ -118,11 +119,11 @@ class InspectionView(tk.Frame):
                   command=self._start_inspection).pack(side="left", padx=4)
 
         tk.Button(btn_frame, text="🔄 بروزرسانی",
-                  font=FONT_INPUT, bg=PRIMARY, fg=WHITE,
+                  font=FONT_LABEL, bg="#800080", fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._load).pack(side="left", padx=4)
 
-        tk.Button(btn_frame, text="📤 خروجی Excel / PDF",
+        tk.Button(btn_frame, text="📤  Excel خروجی  ",
                   font=FONT_INPUT, bg="#34A853", fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._export).pack(side="left", padx=4)
@@ -399,7 +400,7 @@ class InspectionView(tk.Frame):
     # ══════════════════════════ ACTIONS — INSPECTIONS ═══════════════════════
 
     def _export(self):
-        """Export inspections to Excel/PDF"""
+        """Export inspections to Excel"""
         try:
             from views.export_dialog import run_inspection_export
             selected_ins_id = self._selected_inspection_id() if self._ins_tree.selection() else None

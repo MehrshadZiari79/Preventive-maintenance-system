@@ -65,7 +65,7 @@ class DashboardView(ttk.Frame):
         tk.Label(header, text="📊  داشبورد مدیریت", font=FONT_TITLE,
                  bg=BG, fg=PRIMARY).pack(side=tk.RIGHT)
         refresh_btn = tk.Button(header, text="🔄 بروزرسانی", font=FONT_NORMAL,
-                                bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
+                                bg="#800080", fg=WHITE, relief="flat", cursor="hand2",
                                 padx=15, pady=5, command=self._refresh_all)
         refresh_btn.pack(side=tk.LEFT)
 

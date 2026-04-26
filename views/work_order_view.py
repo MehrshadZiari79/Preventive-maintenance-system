@@ -6,6 +6,7 @@ from database.work_order import WorkOrderStatus
 from views.work_order_dialog import WorkOrderDialog
 from views.export_dialog import run_work_order_export
 from views.emergency_work_order_dialog import EmergencyWorkOrderDialog
+from views.parts_selection_dialog import PartsSelectionDialog   # added back
 
 class WorkOrderView(tk.Frame):
     def __init__(self, parent, work_order_repo, current_user):
@@ -35,9 +36,9 @@ class WorkOrderView(tk.Frame):
                   bg="#EA4335", fg="white", font=("Tahoma", 10, "bold"),
                   cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
         tk.Button(btn_frame, text="🔄 بروزرسانی", command=self._load,
-                  bg="#3498db", fg="white", font=("Tahoma", 10),
+                  bg="#800080", fg="white", font=("Tahoma", 10),
                   cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
-        tk.Button(btn_frame, text="📤 خروجی Excel / PDF", command=self._export,
+        tk.Button(btn_frame, text="📤  Excel خروجی  ", command=self._export,
                   bg="#34A853", fg="white", font=("Tahoma", 10),
                   cursor="hand2", relief="flat", padx=15, pady=8).pack(side="left", padx=5)
 
@@ -177,17 +178,14 @@ class WorkOrderView(tk.Frame):
             else:
                 messagebox.showerror("خطا", msg)
 
-    # CORRECTED: Direct completion without parts dialog
     def _complete_work(self):
         wid = self._selected_id()
         if not wid:
             return
-        ok, msg = self.wo_repo.complete_work(wid)
-        if ok:
-            messagebox.showinfo("موفق", msg)
+        dlg = PartsSelectionDialog(self, self.wo_repo, wid)   # restored
+        self.wait_window(dlg)
+        if dlg.result:
             self._load()
-        else:
-            messagebox.showerror("خطا", msg)
 
     def _approve_work(self):
         wid = self._selected_id()

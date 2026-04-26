@@ -142,7 +142,7 @@ class EquipmentView(tk.Frame):
                       relief="flat", cursor="hand2", command=self._delete_equipment,
                       padx=15, pady=8).pack(side="right", padx=5)
 
-        tk.Button(header, text="📤 خروجی Excel / PDF", font=FONT_NORMAL,
+        tk.Button(header, text="📤  Excel خروجی ", font=FONT_NORMAL,
                   bg="#34A853", fg=WHITE, relief="flat", cursor="hand2",
                   command=self._export, padx=15, pady=8).pack(side="left", padx=5)
 

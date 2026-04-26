@@ -5,6 +5,7 @@ Persian UI, consistent with other app views.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
+
 from services.spare_parts_service import SparePartsService
 from views.export_dialog import run_spare_parts_export
 
@@ -62,11 +63,11 @@ class SparePartsView(ttk.Frame):
                   command=self._add_part).pack(side="left", padx=4)
 
         tk.Button(btn_frame, text="🔄 بروزرسانی",
-                  font=FONT_INPUT, bg=PRIMARY, fg=WHITE,
+                  font=FONT_INPUT, bg="#800080", fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._load).pack(side="left", padx=4)
 
-        tk.Button(btn_frame, text="📤 خروجی Excel / PDF",
+        tk.Button(btn_frame, text="📤  Excel خروجی ",
                   font=FONT_INPUT, bg="#34A853", fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._export).pack(side="left", padx=4)

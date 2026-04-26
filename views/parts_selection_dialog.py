@@ -11,7 +11,7 @@ class PartsSelectionDialog(tk.Toplevel):
         self.work_order_id = work_order_id
         self.result = False
         self.title("انتخاب قطعات مصرفی")
-        self.geometry("600x400")
+        self.geometry("700x600")
         self.transient(parent)
         self.grab_set()
 

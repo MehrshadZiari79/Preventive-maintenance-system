@@ -23,20 +23,6 @@ STATUS_FA = {
     "inactive": "غیرفعال"
 }
 
-CATEGORIES = [
-    "پاستوریزاتور",
-    "همزن",
-    "تانک ذخیره",
-    "کمپرسور",
-    "چیلر",
-    "بویلر",
-    "پمپ",
-    "کانوایر",
-    "بسته‌بندی",
-    "سایر"
-]
-
-
 class EquipmentDialog(tk.Toplevel):
     def __init__(self, parent, equipment_repo, equipment=None):
         super().__init__(parent)
@@ -99,48 +85,41 @@ class EquipmentDialog(tk.Toplevel):
         # Row 1: کد و نام
         row1 = tk.Frame(scrollable_frame, bg=WHITE)
         row1.pack(fill="x", pady=5)
-
         self._create_field(row1, "code", "کد تجهیز *", width=30, side="right")
         self._create_field(row1, "name", "نام تجهیز *", width=30, side="left")
 
-        # Row 2: دسته‌بندی و سازنده
+        # Row 2: دسته‌بندی (editable combobox) و سازنده
         row2 = tk.Frame(scrollable_frame, bg=WHITE)
         row2.pack(fill="x", pady=5)
-
-        self._create_combo(row2, "category", "دسته‌بندی *", CATEGORIES, side="right")
+        self._create_editable_category(row2)
         self._create_field(row2, "manufacturer", "سازنده", width=30, side="left")
 
         # Row 3: مدل و شماره سریال
         row3 = tk.Frame(scrollable_frame, bg=WHITE)
         row3.pack(fill="x", pady=5)
-
         self._create_field(row3, "model", "مدل", width=30, side="right")
         self._create_field(row3, "serial_number", "شماره سریال", width=30, side="left")
 
         # Row 4: موقعیت و تاریخ نصب
         row4 = tk.Frame(scrollable_frame, bg=WHITE)
         row4.pack(fill="x", pady=5)
-
         self._create_field(row4, "location", "موقعیت *", width=30, side="right")
         self._create_date_field(row4, "installation_date", "تاریخ نصب", side="left")
 
         # Row 5: وضعیت
         row5 = tk.Frame(scrollable_frame, bg=WHITE)
         row5.pack(fill="x", pady=5)
-
         self._create_combo(row5, "status", "وضعیت *", list(STATUS_FA.values()), side="right")
 
         # Row 6: مشخصات فنی
         row6 = tk.Frame(scrollable_frame, bg=WHITE)
         row6.pack(fill="x", pady=5)
-
         self._create_text_field(row6, "specifications", "مشخصات فنی", height=4)
 
-        # Row 7: یادداشت
+        # Row 7: توضیحات
         row7 = tk.Frame(scrollable_frame, bg=WHITE)
         row7.pack(fill="x", pady=5)
-
-        self._create_text_field(row7, "notes", "یادداشت", height=3)
+        self._create_text_field(row7, "notes", "توضیحات", height=3)
 
         # Buttons
         btn_frame = tk.Frame(self, bg=WHITE)
@@ -168,6 +147,22 @@ class EquipmentDialog(tk.Toplevel):
         entry.pack(fill="x")
         self.entries[key] = entry
 
+    def _create_editable_category(self, parent):
+        """Create an editable combobox for equipment categories."""
+        container = tk.Frame(parent, bg=WHITE)
+        container.pack(side="right", fill="x", expand=True, padx=10)
+
+        tk.Label(container, text="دسته‌بندی *", font=FONT_LABEL,
+                 bg=WHITE, fg=TEXT, anchor="e").pack(anchor="e", pady=(0, 3))
+
+        # Get existing categories from database
+        existing_categories = self.equipment_repo.get_categories()
+        combo = ttk.Combobox(container, font=FONT_NORMAL,
+                             values=existing_categories,
+                             state="normal", width=37)  # editable
+        combo.pack(fill="x")
+        self.entries["category"] = combo
+
     def _create_combo(self, parent, key, label, values, side="right"):
         container = tk.Frame(parent, bg=WHITE)
         container.pack(side=side, fill="x", expand=True, padx=10)
@@ -189,7 +184,6 @@ class EquipmentDialog(tk.Toplevel):
         tk.Label(container, text=label, font=FONT_LABEL,
                  bg=WHITE, fg=TEXT, anchor="e").pack(anchor="e", pady=(0, 3))
 
-        # تاریخ شمسی با تقویم
         date_frame = tk.Frame(container, bg=WHITE)
         date_frame.pack(fill="x")
 
@@ -199,7 +193,6 @@ class EquipmentDialog(tk.Toplevel):
                               locale='fa_IR')
         date_entry.pack(side="right", fill="x", expand=True)
 
-        # نمایش تاریخ شمسی
         jalali_label = tk.Label(date_frame, text="", font=FONT_LABEL,
                                bg=WHITE, fg=TEXT)
         jalali_label.pack(side="left", padx=5)
@@ -247,8 +240,7 @@ class EquipmentDialog(tk.Toplevel):
         self.entries["name"].insert(0, self.equipment.get("name", ""))
 
         category = self.equipment.get("category", "")
-        if category in CATEGORIES:
-            self.entries["category"].set(category)
+        self.entries["category"].set(category)  # editable combo – just set value
 
         self.entries["manufacturer"].insert(0, self.equipment.get("manufacturer", ""))
         self.entries["model"].insert(0, self.equipment.get("model", ""))
@@ -275,7 +267,7 @@ class EquipmentDialog(tk.Toplevel):
     def _save(self):
         code = self.entries["code"].get().strip()
         name = self.entries["name"].get().strip()
-        category = self.entries["category"].get()
+        category = self.entries["category"].get().strip()
         location = self.entries["location"].get().strip()
         status_fa = self.entries["status"].get()
 

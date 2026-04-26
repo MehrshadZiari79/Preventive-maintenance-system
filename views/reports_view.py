@@ -1,5 +1,4 @@
-# views/reports_view.py (full corrected version)
-
+# views/reports_view.py
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkcalendar import DateEntry
@@ -20,7 +19,6 @@ from database.report_repository import ReportRepository
 from database.equipment_repository import EquipmentRepository
 from database.work_order import WorkOrder, WorkOrderType
 
-# Persian status mapping
 STATUS_FA = {
     "operational": "عملیاتی",
     "maintenance": "در تعمیر",
@@ -40,12 +38,10 @@ class ReportsView(ttk.Frame):
         self._load_dashboard()
 
     def _build_ui(self):
-        # Title
         title_frame = ttk.Frame(self)
         title_frame.pack(fill=tk.X, padx=20, pady=10)
         ttk.Label(title_frame, text="گزارشات و تحلیل‌ها", font=("Tahoma", 16, "bold")).pack(side=tk.RIGHT)
 
-        # Filters
         filter_frame = ttk.LabelFrame(self, text="فیلترها", padding=10)
         filter_frame.pack(fill=tk.X, padx=20, pady=5)
 
@@ -61,11 +57,9 @@ class ReportsView(ttk.Frame):
 
         ttk.Button(filter_frame, text="بروزرسانی", command=self._refresh_all).grid(row=0, column=4, padx=10)
 
-        # Notebook
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        # Tabs
         self.overview_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.overview_frame, text="داشبورد کلی")
 
@@ -84,11 +78,9 @@ class ReportsView(ttk.Frame):
         self.trend_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.trend_frame, text="روندها")
 
-        # Add export buttons to each tab's toolbar
         self._add_tab_export_buttons()
 
     def _add_tab_export_buttons(self):
-        """Add export buttons to each tab's header."""
         tabs = [
             (self.overview_frame, "داشبورد کلی"),
             (self.equipment_frame, "عملکرد تجهیزات"),
@@ -100,9 +92,8 @@ class ReportsView(ttk.Frame):
         for frame, title in tabs:
             toolbar = ttk.Frame(frame)
             toolbar.pack(fill=tk.X, pady=(0, 5))
-            ttk.Button(toolbar, text="📊 Excel", command=lambda f=frame, t=title: self._export_tab_to_excel(f, t)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(toolbar, text="📄 PDF", command=lambda f=frame, t=title: self._export_tab_to_pdf(f, t)).pack(side=tk.LEFT, padx=2)
-
+            ttk.Button(toolbar, text="📊 Excel", command=lambda f=frame, t=title: self._export_tab_to_excel(f, t)).pack(
+                side=tk.LEFT, padx=2)
     def _refresh_all(self):
         if self._loading:
             return
@@ -116,7 +107,7 @@ class ReportsView(ttk.Frame):
         start = self.start_date.get_date()
         end = self.end_date.get_date()
         self._load_overview_dashboard()
-        self._load_equipment_performance()
+        self._load_equipment_performance(start, end)
         self._load_kpi_analysis(start, end)
         self._load_cost_analysis(start, end)
         self._load_technician_performance(start, end)
@@ -127,7 +118,6 @@ class ReportsView(ttk.Frame):
         for w in self.overview_frame.winfo_children():
             if isinstance(w, ttk.Frame) and w != self.overview_frame.winfo_children()[0] if self.overview_frame.winfo_children() else True:
                 w.destroy()
-        # Keep only the first toolbar (export buttons)
         children = list(self.overview_frame.winfo_children())
         for w in children[1:]:
             w.destroy()
@@ -135,7 +125,6 @@ class ReportsView(ttk.Frame):
         summary = self.report_repo.get_kpi_summary()
         backlog = self.report_repo.get_backlog_analysis()
 
-        # Create a scrollable canvas
         canvas = tk.Canvas(self.overview_frame, bg="#F0F4F8", highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.overview_frame, orient="vertical", command=canvas.yview)
         scrollable = ttk.Frame(canvas)
@@ -145,7 +134,6 @@ class ReportsView(ttk.Frame):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # KPI cards
         row = 0
         self._create_kpi_card(scrollable, "کل دستورات کار", f"{summary['total_work_orders']}", "تمام دستورات ثبت شده", row, 0, '#2196F3')
         comp_pct = (summary['completed_work_orders'] / summary['total_work_orders'] * 100) if summary['total_work_orders'] > 0 else 0
@@ -176,20 +164,22 @@ class ReportsView(ttk.Frame):
         ttk.Label(card, text=value, font=("Tahoma", 24, "bold"), background=bg, foreground='white').pack()
         ttk.Label(card, text=subtitle, font=("Tahoma", 8), background=bg, foreground='white').pack(pady=(0,5))
 
-    # -------------------- Equipment Performance Tab (with EM column) --------------------
-    def _load_equipment_performance(self):
+    # -------------------- Equipment Performance Tab (with fixed Decimal error and details) --------------------
+    def _load_equipment_performance(self, start_date=None, end_date=None):
         for w in self.equipment_frame.winfo_children():
             if not isinstance(w, ttk.Frame) or w != self.equipment_frame.winfo_children()[0]:
                 w.destroy()
         tree_frame = ttk.Frame(self.equipment_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        columns = ("id", "name", "status", "total_wo", "completed", "pm", "cm", "em", "mtbf", "mttr", "downtime")
+
+        columns = ("id", "name", "status", "total_wo", "completed", "pm", "cm", "em", "mtbf", "mttr", "availability", "downtime")
         self.equipment_tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=15)
         col_defs = [
             ("id", "ID", 50), ("name", "نام تجهیز", 200), ("status", "وضعیت", 100),
             ("total_wo", "کل WO", 80), ("completed", "تکمیل شده", 100), ("pm", "PM", 60),
             ("cm", "CM", 60), ("em", "EM", 60), ("mtbf", "MTBF (ساعت)", 100),
-            ("mttr", "MTTR (ساعت)", 100), ("downtime", "زمان توقف (ساعت)", 120)
+            ("mttr", "MTTR (ساعت)", 100), ("availability", "در دسترس بودن (%)", 100),
+            ("downtime", "زمان توقف (ساعت)", 120)
         ]
         for col, text, width in col_defs:
             self.equipment_tree.heading(col, text=text)
@@ -200,31 +190,158 @@ class ReportsView(ttk.Frame):
         vsb.pack(side="right", fill="y")
         self.equipment_tree.bind("<Double-1>", self._open_equipment_detail)
 
-        # Load data including EM counts
         equipments = self.eq_repo.get_all_equipment()
         with self.report_repo._session() as session:
             for eq in equipments:
-                report = self.report_repo.get_equipment_report(eq['id'])
+                report = self.report_repo.get_equipment_report(eq['id'], start_date, end_date)
                 if report:
+                    # Convert Decimal to float safely
+                    mtbf = float(report['mtbf_hours']) if report['mtbf_hours'] is not None else 0.0
+                    mttr = float(report['mttr_hours']) if report['mttr_hours'] is not None else 0.0
+                    if mtbf + mttr > 0:
+                        availability = (mtbf / (mtbf + mttr)) * 100
+                        availability_str = f"{availability:.1f}"
+                    else:
+                        availability_str = "N/A"
+
                     em_count = session.query(func.count(WorkOrder.id)).filter(
                         WorkOrder.equipment_id == eq['id'],
                         WorkOrder.type == WorkOrderType.EMERGENCY
-                    ).scalar() or 0
+                    )
+                    if start_date:
+                        em_count = em_count.filter(WorkOrder.created_at >= start_date)
+                    if end_date:
+                        em_count = em_count.filter(WorkOrder.created_at <= end_date)
+                    em_count = em_count.scalar() or 0
+
                     self.equipment_tree.insert("", tk.END, values=(
                         report['equipment_id'], report['equipment_name'], report['equipment_status'],
                         report['total_work_orders'], report['completed_work_orders'],
                         report['pm_work_orders'], report['cm_work_orders'],
                         em_count,
-                        f"{report['mtbf_hours']:.1f}", f"{report['mttr_hours']:.1f}",
+                        f"{mtbf:.1f}", f"{mttr:.1f}",
+                        availability_str,
                         f"{report['total_downtime_hours']:.1f}"
                     ))
+
+    # -------------------- Enhanced Equipment Detail Dialog --------------------
+    def _open_equipment_detail(self, event):
+        selection = self.equipment_tree.selection()
+        if not selection:
+            return
+        item = self.equipment_tree.item(selection[0])
+        equipment_id = item['values'][0]
+        # Fetch full equipment details from equipment repository
+        eq_data = self.eq_repo.get_equipment_by_id(equipment_id)
+        if not eq_data:
+            messagebox.showerror("خطا", "تجهیز یافت نشد")
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title(f"گزارش تفصیلی تجهیز - {eq_data['name']}")
+        dialog.geometry("900x700")
+        dialog.configure(bg="#F0F4F8")
+
+        # Notebook for tabs
+        notebook = ttk.Notebook(dialog)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Tab 1: اطلاعات پایه و عملکرد
+        main_frame = ttk.Frame(notebook)
+        notebook.add(main_frame, text="اطلاعات و عملکرد")
+
+        # Scrollable frame for main tab
+        canvas = tk.Canvas(main_frame, bg="#F0F4F8", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable = ttk.Frame(canvas)
+        scrollable.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Equipment basic info
+        info_frame = ttk.LabelFrame(scrollable, text="مشخصات اصلی", padding=10)
+        info_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        fields = [
+            ("کد تجهیز:", eq_data.get("code", "—")),
+            ("نام تجهیز:", eq_data.get("name", "—")),
+            ("دسته‌بندی:", eq_data.get("category", "—")),
+            ("سازنده:", eq_data.get("manufacturer", "—")),
+            ("مدل:", eq_data.get("model", "—")),
+            ("شماره سریال:", eq_data.get("serial_number", "—")),
+            ("موقعیت:", eq_data.get("location", "—")),
+            ("تاریخ نصب:", eq_data.get("installation_date", "—")),
+            ("وضعیت:", STATUS_FA.get(eq_data.get("status", ""), eq_data.get("status", "—"))),
+        ]
+        for i, (label, value) in enumerate(fields):
+            ttk.Label(info_frame, text=label, font=("Tahoma", 10, "bold")).grid(row=i, column=0, sticky="e", padx=5, pady=3)
+            ttk.Label(info_frame, text=value, font=("Tahoma", 10)).grid(row=i, column=1, sticky="w", padx=5, pady=3)
+
+        # Specifications (مشخصات فنی)
+        specs_frame = ttk.LabelFrame(scrollable, text="مشخصات فنی", padding=10)
+        specs_frame.pack(fill=tk.X, padx=10, pady=5)
+        specs_text = eq_data.get("specifications", "") or "—"
+        ttk.Label(specs_frame, text=specs_text, font=("Tahoma", 9), wraplength=700, justify="right").pack(anchor="w")
+
+        # Notes (یادداشت)
+        notes_frame = ttk.LabelFrame(scrollable, text="یادداشت‌ها", padding=10)
+        notes_frame.pack(fill=tk.X, padx=10, pady=5)
+        notes_text = eq_data.get("notes", "") or "—"
+        ttk.Label(notes_frame, text=notes_text, font=("Tahoma", 9), wraplength=700, justify="right").pack(anchor="w")
+
+        # KPI from report repository (using cached report)
+        report = self.report_repo.get_equipment_report(equipment_id, self.start_date.get_date(), self.end_date.get_date())
+        if report:
+            kpi_frame = ttk.LabelFrame(scrollable, text="شاخص‌های عملکردی", padding=10)
+            kpi_frame.pack(fill=tk.X, padx=10, pady=5)
+            kpis = [
+                ("کل دستورات کار:", report['total_work_orders']),
+                ("تکمیل شده:", report['completed_work_orders']),
+                ("PM:", report['pm_work_orders']),
+                ("CM:", report['cm_work_orders']),
+                ("میانگین زمان تعمیر (ساعت):", f"{report['avg_repair_time_hours']:.2f}"),
+                ("کل زمان توقف (ساعت):", f"{report['total_downtime_hours']:.2f}"),
+                ("انطباق PM (%):", f"{report['pm_compliance_rate']:.1f}"),
+                ("MTBF (ساعت):", f"{report['mtbf_hours']:.2f}"),
+                ("MTTR (ساعت):", f"{report['mttr_hours']:.2f}"),
+                ("تعداد خرابی:", report['failure_count'])
+            ]
+            for i, (label, value) in enumerate(kpis):
+                ttk.Label(kpi_frame, text=label, font=("Tahoma", 10, "bold")).grid(row=i, column=0, sticky="e", padx=5, pady=3)
+                ttk.Label(kpi_frame, text=value, font=("Tahoma", 10)).grid(row=i, column=1, sticky="w", padx=5, pady=3)
+
+        # Tab 2: نمودارها
+        chart_frame = ttk.Frame(notebook)
+        notebook.add(chart_frame, text="نمودارها")
+        fig = Figure(figsize=(8,6))
+        ax1 = fig.add_subplot(121)
+        if report and (report['pm_work_orders'] > 0 or report['cm_work_orders'] > 0):
+            ax1.pie([report['pm_work_orders'], report['cm_work_orders']], labels=['PM','CM'], autopct='%1.1f%%', colors=['#4CAF50','#F44336'])
+            ax1.set_title('PM vs CM Distribution')
+        else:
+            ax1.text(0.5,0.5,'No Data', ha='center', va='center')
+        ax2 = fig.add_subplot(122)
+        if report:
+            metrics = ['MTBF','MTTR','Downtime']
+            values = [report['mtbf_hours'], report['mttr_hours'], report['total_downtime_hours']]
+            ax2.bar(metrics, values, color=['#2196F3','#FF9800','#F44336'])
+            ax2.set_ylabel('Hours')
+            ax2.set_title('Key Metrics')
+        else:
+            ax2.text(0.5,0.5,'No Data', ha='center', va='center')
+        canvas_chart = FigureCanvasTkAgg(fig, chart_frame)
+        canvas_chart.draw()
+        canvas_chart.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        ttk.Button(dialog, text="بستن", command=dialog.destroy).pack(pady=10)
 
     # -------------------- KPI Analysis Tab --------------------
     def _load_kpi_analysis(self, start_date, end_date):
         for w in self.kpi_frame.winfo_children():
             if not isinstance(w, ttk.Frame) or w != self.kpi_frame.winfo_children()[0]:
                 w.destroy()
-        # Create scrollable canvas
         canvas = tk.Canvas(self.kpi_frame, bg="#F0F4F8", highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.kpi_frame, orient="vertical", command=canvas.yview)
         scrollable = ttk.Frame(canvas)
@@ -322,7 +439,7 @@ class ReportsView(ttk.Frame):
         self.tech_tree = tree
         tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    # -------------------- Trends Tab (with EM line) --------------------
+    # -------------------- Trends Tab --------------------
     def _load_trends(self):
         for w in self.trend_frame.winfo_children():
             if not isinstance(w, ttk.Frame) or w != self.trend_frame.winfo_children()[0]:
@@ -344,10 +461,10 @@ class ReportsView(ttk.Frame):
         x = list(months.keys())
         preventive = [months[m].get('PREVENTIVE',0) + months[m].get('PM',0) for m in x]
         corrective = [months[m].get('CORRECTIVE',0) for m in x]
-        emergency = [months[m].get('EMERGENCY',0) for m in x]   # added EM line
+        emergency = [months[m].get('EMERGENCY',0) for m in x]
         ax.plot(x, preventive, marker='o', label='Preventive', color='#4CAF50')
         ax.plot(x, corrective, marker='s', label='Corrective', color='#F44336')
-        ax.plot(x, emergency, marker='^', label='Emergency', color='#FF9800')   # EM line
+        ax.plot(x, emergency, marker='^', label='Emergency', color='#FF9800')
         ax.set_xlabel('Month')
         ax.set_ylabel('Count')
         ax.set_title('Work Order Trends (Last 6 Months)')
@@ -360,7 +477,6 @@ class ReportsView(ttk.Frame):
 
     # -------------------- Export Methods --------------------
     def _export_tab_to_excel(self, frame, tab_title):
-        """Export current tab's data to Excel."""
         data = self._collect_tab_data(frame, tab_title)
         if not data:
             messagebox.showwarning("هشدار", "داده‌ای برای خروجی وجود ندارد!")
@@ -375,23 +491,7 @@ class ReportsView(ttk.Frame):
             df.to_excel(filename, index=False)
             messagebox.showinfo("موفق", f"خروجی Excel با موفقیت ذخیره شد!")
 
-    def _export_tab_to_pdf(self, frame, tab_title):
-        """Export current tab's data to PDF."""
-        data = self._collect_tab_data(frame, tab_title)
-        if not data:
-            messagebox.showwarning("هشدار", "داده‌ای برای خروجی وجود ندارد!")
-            return
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".pdf",
-            filetypes=[("PDF files", "*.pdf")],
-            initialfile=f"{tab_title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        )
-        if filename:
-            self._generate_pdf_report(data, tab_title, filename)
-            messagebox.showinfo("موفق", f"خروجی PDF با موفقیت ذخیره شد!")
-
     def _collect_tab_data(self, frame, tab_title):
-        """Collect data from the current tab as a list of dicts."""
         data = []
         if tab_title == "عملکرد تجهیزات":
             for child in self.equipment_tree.get_children():
@@ -404,10 +504,11 @@ class ReportsView(ttk.Frame):
                     "تکمیل شده": values[4],
                     "PM": values[5],
                     "CM": values[6],
-                    "EM": values[7],          # new
+                    "EM": values[7],
                     "MTBF (ساعت)": values[8],
                     "MTTR (ساعت)": values[9],
-                    "زمان توقف (ساعت)": values[10]
+                    "در دسترس بودن (%)": values[10],
+                    "زمان توقف (ساعت)": values[11]
                 })
         elif tab_title == "عملکرد تکنسین‌ها" and hasattr(self, 'tech_tree'):
             for child in self.tech_tree.get_children():
@@ -477,85 +578,3 @@ class ReportsView(ttk.Frame):
                 })
         return data
 
-    def _generate_pdf_report(self, data, title, filename):
-        """Generate a simple PDF table from the collected data."""
-        doc = SimpleDocTemplate(filename, pagesize=A4)
-        story = []
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, alignment=1)
-        story.append(Paragraph(f"گزارش {title}", title_style))
-        story.append(Spacer(1, 20))
-        if not data:
-            story.append(Paragraph("هیچ داده‌ای موجود نیست.", styles['Normal']))
-        else:
-            headers = list(data[0].keys())
-            table_data = [headers] + [[str(row.get(h, "")) for h in headers] for row in data]
-            table = Table(table_data)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.grey),
-                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ]))
-            story.append(table)
-        doc.build(story)
-
-    # -------------------- Equipment Detail Dialog --------------------
-    def _open_equipment_detail(self, event):
-        selection = self.equipment_tree.selection()
-        if not selection:
-            return
-        item = self.equipment_tree.item(selection[0])
-        equipment_id = item['values'][0]
-        dialog = tk.Toplevel(self)
-        dialog.title(f"گزارش تفصیلی تجهیز")
-        dialog.geometry("800x600")
-        report = self.report_repo.get_equipment_report(equipment_id)
-        if not report:
-            messagebox.showerror("خطا", "گزارش یافت نشد")
-            dialog.destroy()
-            return
-        header_frame = ttk.Frame(dialog)
-        header_frame.pack(fill=tk.X, padx=20, pady=10)
-        ttk.Label(header_frame, text=f"تجهیز: {report['equipment_name']}", font=("Tahoma",14,"bold")).pack(side=tk.RIGHT)
-        ttk.Label(header_frame, text=f"وضعیت: {report['equipment_status']}", font=("Tahoma",10)).pack(side=tk.LEFT)
-        notebook = ttk.Notebook(dialog)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        # Summary tab
-        summary_frame = ttk.Frame(notebook)
-        notebook.add(summary_frame, text="خلاصه")
-        summary_data = [
-            ("کل دستورات کار:", report['total_work_orders']),
-            ("تکمیل شده:", report['completed_work_orders']),
-            ("PM:", report['pm_work_orders']),
-            ("CM:", report['cm_work_orders']),
-            ("میانگین زمان تعمیر (ساعت):", f"{report['avg_repair_time_hours']:.2f}"),
-            ("کل زمان توقف (ساعت):", f"{report['total_downtime_hours']:.2f}"),
-            ("نرخ انطباق PM (%):", f"{report['pm_compliance_rate']:.1f}"),
-            ("MTBF (ساعت):", f"{report['mtbf_hours']:.2f}"),
-            ("MTTR (ساعت):", f"{report['mttr_hours']:.2f}"),
-            ("تعداد خرابی:", report['failure_count'])
-        ]
-        for i, (label, value) in enumerate(summary_data):
-            ttk.Label(summary_frame, text=label, font=("Tahoma",10,"bold")).grid(row=i, column=0, sticky=tk.E, padx=20, pady=5)
-            ttk.Label(summary_frame, text=str(value), font=("Tahoma",10)).grid(row=i, column=1, sticky=tk.W, padx=20, pady=5)
-        # Charts tab
-        chart_frame = ttk.Frame(notebook)
-        notebook.add(chart_frame, text="نمودارها")
-        fig = Figure(figsize=(8,6))
-        ax1 = fig.add_subplot(121)
-        if report['pm_work_orders'] > 0 or report['cm_work_orders'] > 0:
-            ax1.pie([report['pm_work_orders'], report['cm_work_orders']], labels=['PM','CM'], autopct='%1.1f%%', colors=['#4CAF50','#F44336'])
-            ax1.set_title('PM vs CM Distribution')
-        else:
-            ax1.text(0.5,0.5,'No Data', ha='center', va='center')
-        ax2 = fig.add_subplot(122)
-        metrics = ['MTBF','MTTR','Downtime']
-        values = [report['mtbf_hours'], report['mttr_hours'], report['total_downtime_hours']]
-        ax2.bar(metrics, values, color=['#2196F3','#FF9800','#F44336'])
-        ax2.set_ylabel('Hours')
-        ax2.set_title('Key Metrics')
-        canvas = FigureCanvasTkAgg(fig, chart_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        ttk.Button(dialog, text="بستن", command=dialog.destroy).pack(pady=10)
