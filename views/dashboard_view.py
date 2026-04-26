@@ -165,34 +165,6 @@ class DashboardView(ttk.Frame):
         # Row 1: Trend chart + Equipment status pie
         row1 = tk.Frame(container, bg=BG)
         row1.pack(fill=tk.X, pady=5)
-
-        # Chart 1: Work order trends (last 6 months)
-        trends = self.report_repo.get_monthly_trends(6)
-        if trends:
-            fig1 = Figure(figsize=(5.5, 3.2), dpi=90)
-            ax1 = fig1.add_subplot(111)
-            months = {}
-            for t in trends:
-                key = f"{t['year']}-{t['month']:02d}"
-                if key not in months:
-                    months[key] = {'PREVENTIVE': 0, 'PM': 0, 'CORRECTIVE': 0, 'EMERGENCY': 0}
-                typ = t['type']
-                if typ in months[key]:
-                    months[key][typ] += t['count']
-            x = list(months.keys())
-            preventive = [months[m].get('PREVENTIVE', 0) + months[m].get('PM', 0) for m in x]
-            corrective = [months[m].get('CORRECTIVE', 0) for m in x]
-            emergency = [months[m].get('EMERGENCY', 0) for m in x]
-            ax1.plot(x, preventive, marker='o', label='Preventive', color=SUCCESS)
-            ax1.plot(x, corrective, marker='s', label='Corrective', color=DANGER)
-            ax1.plot(x, emergency, marker='^', label='Emergency', color=WARNING)
-            ax1.set_title("Work Order Trends (Last 6 Months)", fontsize=10)
-            ax1.legend(fontsize=8)
-            ax1.tick_params(axis='x', rotation=45, labelsize=7)
-            canvas1 = FigureCanvasTkAgg(fig1, row1)
-            canvas1.draw()
-            canvas1.get_tk_widget().pack(side=tk.LEFT, padx=5, fill=tk.BOTH, expand=True)
-
         # Chart 2: Equipment status pie
         eq_stats = self.eq_repo.get_stats()
         labels = ['Operational', 'Maintenance', 'Breakdown', 'Inactive']

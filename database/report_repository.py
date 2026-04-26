@@ -275,7 +275,7 @@ class ReportRepository:
     # ==================== COST ANALYSIS ====================
     def get_cost_analysis(self, start_date=None, end_date=None):
         with self._session() as session:
-            # Spare part costs via reference field (stores work order ID as string)
+            # Spare part costs
             part_cost_query = session.query(
                 WorkOrder.type,
                 func.sum(SparePartTransaction.quantity * SparePart.unit_price).label("part_cost")
@@ -292,9 +292,10 @@ class ReportRepository:
                 part_cost_query = part_cost_query.filter(WorkOrder.created_at >= start_date)
             if end_date:
                 part_cost_query = part_cost_query.filter(WorkOrder.created_at <= end_date)
-            part_cost_by_type = {row.type.name: row.part_cost or 0 for row in part_cost_query.group_by(WorkOrder.type).all()}
+            part_cost_by_type = {row.type.name: float(row.part_cost or 0) for row in
+                                 part_cost_query.group_by(WorkOrder.type).all()}
 
-            # Labor cost: estimated from repair hours * 50 per hour
+            # Labor cost
             labor_query = session.query(
                 WorkOrder.type,
                 func.sum(func.julianday(WorkOrder.end_time) - func.julianday(WorkOrder.start_time)) * 24 * 50
@@ -307,24 +308,41 @@ class ReportRepository:
                 labor_query = labor_query.filter(WorkOrder.created_at >= start_date)
             if end_date:
                 labor_query = labor_query.filter(WorkOrder.created_at <= end_date)
-            labor_by_type = {row.type.name: row[1] or 0 for row in labor_query.group_by(WorkOrder.type).all()}
+            labor_by_type = {row.type.name: float(row[1] or 0) for row in labor_query.group_by(WorkOrder.type).all()}
 
-            all_types = set(part_cost_by_type.keys()) | set(labor_by_type.keys())
+            # Manual cost
+            manual_cost_query = session.query(
+                WorkOrder.type,
+                func.sum(WorkOrder.manual_cost).label("manual_cost")
+            ).filter(
+                WorkOrder.status == WorkOrderStatus.COMPLETED
+            )
+            if start_date:
+                manual_cost_query = manual_cost_query.filter(WorkOrder.created_at >= start_date)
+            if end_date:
+                manual_cost_query = manual_cost_query.filter(WorkOrder.created_at <= end_date)
+            manual_by_type = {row.type.name: float(row.manual_cost or 0) for row in
+                              manual_cost_query.group_by(WorkOrder.type).all()}
+
+            all_types = set(part_cost_by_type.keys()) | set(labor_by_type.keys()) | set(manual_by_type.keys())
             breakdown = []
-            total_cost = 0
+            total_cost = 0.0
             for t in all_types:
-                cost = part_cost_by_type.get(t, 0) + labor_by_type.get(t, 0)
+                part = part_cost_by_type.get(t, 0.0)
+                labor = labor_by_type.get(t, 0.0)
+                manual = manual_by_type.get(t, 0.0)
+                cost = part + labor + manual
                 breakdown.append({
                     "type": t,
                     "total_cost": round(cost, 2),
-                    "part_cost": round(part_cost_by_type.get(t, 0), 2),
-                    "labor_cost": round(labor_by_type.get(t, 0), 2),
+                    "part_cost": round(part, 2),
+                    "labor_cost": round(labor, 2),
+                    "manual_cost": round(manual, 2),
                 })
                 total_cost += cost
             for b in breakdown:
                 b["percentage"] = round((b["total_cost"] / total_cost * 100), 2) if total_cost > 0 else 0
             return {"breakdown": breakdown, "total_cost": round(total_cost, 2)}
-
     # ==================== RISK & TECHNICIAN PERFORMANCE ====================
     def get_equipment_risk_score(self):
         with self._session() as session:
@@ -395,25 +413,25 @@ class ReportRepository:
         with self._session() as session:
             start_date = datetime.now() - timedelta(days=months * 30)
             rows = session.query(
-                extract("year", WorkOrder.end_time).label("year"),
-                extract("month", WorkOrder.end_time).label("month"),
+                extract("year", WorkOrder.created_at).label("year"),
+                extract("month", WorkOrder.created_at).label("month"),
                 WorkOrder.type,
                 func.count(WorkOrder.id).label("count"),
             ).filter(
-                WorkOrder.end_time >= start_date,
-                WorkOrder.status == WorkOrderStatus.COMPLETED,
+                WorkOrder.created_at >= start_date
             ).group_by("year", "month", WorkOrder.type
-            ).order_by("year", "month").all()
-            return [
-                {
+                       ).order_by("year", "month").all()
+
+            # Convert to list of dicts
+            result = []
+            for year, month, wo_type, count in rows:
+                result.append({
                     "year": int(year),
                     "month": int(month),
                     "type": wo_type.name,
                     "count": count,
-                }
-                for year, month, wo_type, count in rows
-            ]
-
+                })
+            return result
     # ==================== DAIRY‑SPECIFIC KPIs ====================
     def get_inspection_effectiveness(self, start_date=None, end_date=None):
         with self._session() as session:
@@ -481,7 +499,26 @@ class ReportRepository:
                 "average_inventory_value": round(avg_inventory, 2),
                 "turnover_ratio": round(turnover, 2),
             }
-
+    # ==================== FAILURE MODES ====================
+    def get_top_failure_modes(self, start_date=None, end_date=None, limit=5):
+        """
+        Return the most frequent failure descriptions from corrective & emergency work orders.
+        """
+        with self._session() as session:
+            query = session.query(
+                WorkOrder.description,
+                func.count(WorkOrder.id).label('count')
+            ).filter(
+                WorkOrder.type.in_([WorkOrderType.CORRECTIVE, WorkOrderType.EMERGENCY]),
+                WorkOrder.description.isnot(None),
+                WorkOrder.description != ''
+            )
+            if start_date:
+                query = query.filter(WorkOrder.created_at >= start_date)
+            if end_date:
+                query = query.filter(WorkOrder.created_at <= end_date)
+            results = query.group_by(WorkOrder.description).order_by(func.count(WorkOrder.id).desc()).limit(limit).all()
+            return [{'description': desc, 'count': cnt} for desc, cnt in results]
     # ==================== PRIVATE HELPERS ====================
     def _get_downtime_internal(self, session, equipment_id, start_date, end_date):
         query = session.query(

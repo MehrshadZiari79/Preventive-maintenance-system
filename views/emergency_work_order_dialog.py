@@ -6,7 +6,8 @@ from database.work_order_repository import WorkOrderRepository
 from database.work_order import WorkOrderType, WorkOrderPriority
 from database.equipment_repository import EquipmentRepository
 from auth.auth_manager import AuthManager
-
+# In views/emergency_work_order_dialog.py, at the top with other imports:
+from database.work_order import WorkOrder
 
 BG = "#F0F4F8"
 WHITE = "#FFFFFF"

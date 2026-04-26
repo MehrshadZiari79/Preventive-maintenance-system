@@ -10,15 +10,17 @@ class PartsSelectionDialog(tk.Toplevel):
         self.wo_repo = wo_repo
         self.work_order_id = work_order_id
         self.result = False
-        self.title("انتخاب قطعات مصرفی")
-        self.geometry("700x600")
+        self.title("تکمیل کار و ثبت هزینه")
+        self.geometry("850x750")
         self.transient(parent)
         self.grab_set()
 
         self.sp_repo = SparePartsRepository(SessionLocal())
-        self.selected_parts = []  # list of {"part_id": id, "part_number": str, "name": str, "quantity": int, "stock": int}
-        # Load pre‑selected parts from work order (if any)
+        self.selected_parts = []
         self.work_order = self.wo_repo.get_by_id(work_order_id)
+        self.all_parts = self.sp_repo.get_all()
+
+        # Pre‑load parts from work order (if any)
         if self.work_order and self.work_order.parts_used:
             try:
                 import json
@@ -37,7 +39,6 @@ class PartsSelectionDialog(tk.Toplevel):
                         })
             except:
                 pass
-        self.all_parts = self.sp_repo.get_all()
 
         self._build_ui()
         self._refresh_tree()
@@ -46,9 +47,12 @@ class PartsSelectionDialog(tk.Toplevel):
         main = ttk.Frame(self, padding=10)
         main.pack(fill=tk.BOTH, expand=True)
 
-        # Parts tree
+        # ========== Parts section ==========
+        parts_frame = ttk.LabelFrame(main, text="قطعات مصرفی", padding=5)
+        parts_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
         columns = ("part_number", "name", "stock", "quantity")
-        self.tree = ttk.Treeview(main, columns=columns, show="headings", height=10)
+        self.tree = ttk.Treeview(parts_frame, columns=columns, show="headings", height=6)
         self.tree.heading("part_number", text="شماره قطعه")
         self.tree.heading("name", text="نام قطعه")
         self.tree.heading("stock", text="موجودی")
@@ -59,24 +63,46 @@ class PartsSelectionDialog(tk.Toplevel):
         self.tree.column("quantity", width=80)
         self.tree.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        # Buttons
-        btn_frame = ttk.Frame(main)
+        btn_frame = ttk.Frame(parts_frame)
         btn_frame.pack(fill=tk.X, pady=5)
         ttk.Button(btn_frame, text="➕ افزودن قطعه", command=self._add_part).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="🗑️ حذف قطعه", command=self._remove_part).pack(side=tk.RIGHT, padx=5)
 
+        # ========== Manual cost section ==========
+        cost_frame = ttk.LabelFrame(main, text="هزینه دستی", padding=10)
+        cost_frame.pack(fill=tk.X, pady=5)
+
+        # Cost amount
+        tk.Label(cost_frame, text="مبلغ (ریال):", font=("Tahoma", 10)).grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
+        self.manual_cost_var = tk.StringVar(value="0")
+        cost_entry = ttk.Entry(cost_frame, textvariable=self.manual_cost_var, width=20)
+        cost_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+
+        # Cost description
+        tk.Label(cost_frame, text="توضیح هزینه:", font=("Tahoma", 10)).grid(row=1, column=0, sticky=tk.NE, padx=5, pady=5)
+        self.cost_desc_text = tk.Text(cost_frame, width=50, height=3, font=("Tahoma", 9))
+        self.cost_desc_text.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Load existing values from work order if already set
+        if self.work_order and self.work_order.manual_cost:
+            self.manual_cost_var.set(str(int(self.work_order.manual_cost)))
+        if self.work_order and self.work_order.cost_description:
+            self.cost_desc_text.insert("1.0", self.work_order.cost_description)
+
+        # ========== Technician notes ==========
         desc_frame = ttk.LabelFrame(main, text="توضیحات تکنسین", padding=5)
         desc_frame.pack(fill=tk.X, pady=5)
         self.desc_text = tk.Text(desc_frame, height=4)
         self.desc_text.pack(fill=tk.X)
 
-        action_btn = ttk.Button(main, text="✅ تکمیل کار و کسر قطعات", command=self._complete)
+        # Complete button
+        action_btn = ttk.Button(main, text="✅ تکمیل کار", command=self._complete)
         action_btn.pack(pady=10)
 
     def _add_part(self):
         dialog = tk.Toplevel(self)
         dialog.title("انتخاب قطعه")
-        dialog.geometry("400x250")
+        dialog.geometry("500x350")
         dialog.transient(self)
         dialog.grab_set()
 
@@ -99,13 +125,11 @@ class PartsSelectionDialog(tk.Toplevel):
             except:
                 messagebox.showerror("خطا", "تعداد نامعتبر")
                 return
-            # Find part
             for p in self.all_parts:
                 if f"{p.part_number} - {p.name}" == selection:
                     if p.current_stock < qty:
                         messagebox.showerror("خطا", f"موجودی کافی نیست. موجودی: {p.current_stock}")
                         return
-                    # Check if already added
                     for item in self.selected_parts:
                         if item['part_id'] == p.id:
                             item['quantity'] += qty
@@ -146,13 +170,28 @@ class PartsSelectionDialog(tk.Toplevel):
             ))
 
     def _complete(self):
-        if not self.selected_parts:
-            # Optional: allow completion without parts
-            if not messagebox.askyesno("تأیید", "هیچ قطعه‌ای انتخاب نشده است. آیا بدون کسر قطعه ادامه می‌دهید؟"):
-                return
+        # Get manual cost and description
+        try:
+            manual_cost = float(self.manual_cost_var.get().strip())
+        except:
+            manual_cost = 0.0
+
+        cost_description = self.cost_desc_text.get("1.0", tk.END).strip() or None
+
+        # Get technician notes
         description = self.desc_text.get("1.0", tk.END).strip() or None
+
+        # Prepare parts list
         used_parts_list = [{"part_id": p['part_id'], "quantity": p['quantity']} for p in self.selected_parts]
-        ok, msg = self.wo_repo.complete_work(self.work_order_id, description, used_parts_list=used_parts_list)
+
+        # Call repository to complete work order with all data
+        ok, msg = self.wo_repo.complete_work(
+            self.work_order_id,
+            description=description,
+            used_parts_list=used_parts_list,
+            manual_cost=manual_cost,
+            cost_description=cost_description
+        )
         if ok:
             messagebox.showinfo("موفق", msg)
             self.result = True

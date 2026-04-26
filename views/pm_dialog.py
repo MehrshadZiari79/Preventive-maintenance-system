@@ -17,7 +17,7 @@ class PMDialog(tk.Toplevel):
         self.callback = callback
         self.result = False
 
-        self.title("ویرایش برنامه PM" if schedule else "برنامه PM جدید")
+        self.title("ویرایش برنامه PM" if schedule else "برنامه-PM-جدید")
         self.geometry("750x850")
         self.resizable(False, False)
 

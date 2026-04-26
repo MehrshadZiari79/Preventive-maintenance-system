@@ -149,10 +149,12 @@ def export_work_orders_excel(work_orders: list, path: str) -> str:
     ws.title = "Work Orders"
     ws.sheet_view.rightToLeft = True
 
-    headers = ["شناسه", "عنوان", "تجهیز", "نوع", "اولویت", "تکنسین",
-               "اپراتور تحویل گیرنده", "ساعت اعلام خرابی", "وضعیت", "تاریخ برنامه",
-               "شروع تعمیر", "پایان تعمیر", "توضیحات اپراتور", "امضای اپراتور",
-               "توضیحات تکنسین", "قطعات مصرفی"]
+    headers = [
+        "شناسه", "عنوان", "تجهیز", "نوع", "اولویت", "تکنسین",
+        "اپراتور تحویل گیرنده", "ساعت اعلام خرابی", "وضعیت", "تاریخ برنامه",
+        "شروع تعمیر", "پایان تعمیر", "توضیحات اپراتور", "امضای اپراتور",
+        "توضیحات تکنسین", "قطعات مصرفی", "هزینه دستی (ریال)", "توضیح هزینه"
+    ]
     _xl_header_style(ws, 1, len(headers), "لیست دستور کارها")
     _xl_col_header(ws, 4, headers)
 
@@ -174,16 +176,22 @@ def export_work_orders_excel(work_orders: list, path: str) -> str:
         start = wo.start_time.strftime("%Y-%m-%d %H:%M") if wo.start_time else "—"
         end = wo.end_time.strftime("%Y-%m-%d %H:%M") if wo.end_time else "—"
 
+        manual_cost_val = float(wo.manual_cost) if wo.manual_cost else 0.0
+        manual_cost_str = f"{manual_cost_val:,.2f}"
+        cost_desc = wo.cost_description or "—"
+
         _xl_data_row(ws, 5+i, [
             wo.id, wo.title, eq_name, TYPE_FA.get(wo.type.name, wo.type.name),
             PRIORITY_FA.get(wo.priority.name, wo.priority.name), tech_name, operator_name,
             failure_time, STATUS_FA.get(status, status), scheduled, start, end,
             wo.operator_notes or "", wo.operator_signature or "", wo.description or "",
-            wo.parts_used or ""
+            wo.parts_used or "", manual_cost_str, cost_desc
         ], zebra=(i % 2 == 1))
+
         bg = STATUS_COLORS.get(status, C_WHITE)
         for col in range(1, len(headers)+1):
             ws.cell(row=5+i, column=col).fill = PatternFill("solid", fgColor=bg)
+
     _xl_auto_width(ws)
     wb.save(path)
     return path

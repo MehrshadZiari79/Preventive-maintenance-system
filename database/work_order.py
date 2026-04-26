@@ -1,5 +1,5 @@
 # database/work_order.py
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum as SAEnum, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum as SAEnum, Index, Numeric
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -9,7 +9,7 @@ from database.db import Base
 class WorkOrderType(enum.Enum):
     PREVENTIVE = "preventive"
     CORRECTIVE = "corrective"
-    EMERGENCY = "emergency"          # added emergency type
+    EMERGENCY = "emergency"
     INSPECTION = "inspection"
     PM = "pm"
 
@@ -43,8 +43,7 @@ class WorkOrder(Base):
     technician_id  = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     supervisor_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    # NEW FIELD for emergency work order origin
-    emergency_reported_by = Column(String(100), nullable=True)   # full name or username of reporter
+    emergency_reported_by = Column(String(100), nullable=True)
 
     operator_id        = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     failure_report_time = Column(DateTime, nullable=True)
@@ -54,6 +53,10 @@ class WorkOrder(Base):
     title            = Column(String(200), nullable=False)
     description      = Column(Text, nullable=True)
     parts_used       = Column(Text, nullable=True)
+
+    # Manual cost fields
+    manual_cost      = Column(Numeric(10, 2), default=0.0, nullable=False)
+    cost_description = Column(Text, nullable=True)
 
     scheduled_date   = Column(DateTime, nullable=True, index=True)
     start_time       = Column(DateTime, nullable=True)

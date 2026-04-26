@@ -16,7 +16,7 @@ class WorkOrderDialog(tk.Toplevel):
         self.result = False
 
         self.title("دستور کار جدید" if not work_order else "ویرایش دستور کار")
-        self.geometry("750x850")
+        self.geometry("750x920")
         self.resizable(False, False)
 
         self.eq_repo = EquipmentRepository()
@@ -63,13 +63,13 @@ class WorkOrderDialog(tk.Toplevel):
         ttk.Radiobutton(priority_frame, text="زیاد", variable=self.priority_var, value="HIGH").pack(side=tk.RIGHT, padx=5)
         ttk.Radiobutton(priority_frame, text="فوری", variable=self.priority_var, value="URGENT").pack(side=tk.RIGHT, padx=5)
 
-        # Technician (repair technician)
+        # Technician
         ttk.Label(main, text="تکنسین تعمیر:", font=("Tahoma", 10)).grid(row=4, column=1, sticky=tk.E, pady=5)
         self.technician_combo = ttk.Combobox(main, width=48, state="readonly")
         self.technician_combo.grid(row=4, column=0, pady=5, padx=5)
         self._load_technicians()
 
-        # Operator (who reports/gives equipment)
+        # Operator
         ttk.Label(main, text="اپراتور تحویل گیرنده:", font=("Tahoma", 10)).grid(row=5, column=1, sticky=tk.E, pady=5)
         self.operator_combo = ttk.Combobox(main, width=48, state="readonly")
         self.operator_combo.grid(row=5, column=0, pady=5, padx=5)
@@ -106,14 +106,25 @@ class WorkOrderDialog(tk.Toplevel):
         self.op_signature_entry = ttk.Entry(main, width=50)
         self.op_signature_entry.grid(row=10, column=0, pady=5, padx=5)
 
-        # Parts used (text only, free text)
+        # Parts used
         ttk.Label(main, text="قطعات مصرفی (توضیح):", font=("Tahoma", 10)).grid(row=11, column=1, sticky=tk.NE, pady=5)
         self.parts_text = tk.Text(main, width=50, height=4, font=("Tahoma", 9))
         self.parts_text.grid(row=11, column=0, pady=5, padx=5)
 
+        # Manual cost
+        ttk.Label(main, text="هزینه دستی (ریال):", font=("Tahoma", 10)).grid(row=12, column=1, sticky=tk.E, pady=5)
+        self.manual_cost_entry = ttk.Entry(main, width=20)
+        self.manual_cost_entry.grid(row=12, column=0, pady=5, padx=5, sticky=tk.W)
+        self.manual_cost_entry.insert(0, "0")
+
+        # Cost description
+        ttk.Label(main, text="توضیح هزینه:", font=("Tahoma", 10)).grid(row=13, column=1, sticky=tk.NE, pady=5)
+        self.cost_desc_text = tk.Text(main, width=50, height=2, font=("Tahoma", 9))
+        self.cost_desc_text.grid(row=13, column=0, pady=5, padx=5)
+
         # Buttons
         btn_frame = ttk.Frame(main)
-        btn_frame.grid(row=12, column=0, columnspan=2, pady=20)
+        btn_frame.grid(row=14, column=0, columnspan=2, pady=20)
         ttk.Button(btn_frame, text="ذخیره", command=self._on_save).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="انصراف", command=self.destroy).pack(side=tk.RIGHT, padx=5)
 
@@ -126,7 +137,6 @@ class WorkOrderDialog(tk.Toplevel):
 
     def _load_technicians(self):
         users = self.user_repo.get_all_users()
-        # only users with role technician, admin, manager can be assigned as repair tech
         techs = [u for u in users if u['role'] in ['technician', 'admin', 'manager']]
         self.tech_map = {f"{u['full_name']} ({u['username']})": u['id'] for u in techs}
         self.technician_combo['values'] = list(self.tech_map.keys())
@@ -135,7 +145,6 @@ class WorkOrderDialog(tk.Toplevel):
 
     def _load_operators(self):
         users = self.user_repo.get_all_users()
-        # all active users can be operator
         ops = [u for u in users if u['is_active']]
         self.operator_map = {f"{u['full_name']} ({u['username']})": u['id'] for u in ops}
         self.operator_combo['values'] = list(self.operator_map.keys())
@@ -183,6 +192,13 @@ class WorkOrderDialog(tk.Toplevel):
         if wo.parts_used:
             self.parts_text.insert("1.0", wo.parts_used)
 
+        if wo.manual_cost:
+            self.manual_cost_entry.delete(0, tk.END)
+            self.manual_cost_entry.insert(0, str(wo.manual_cost))
+
+        if wo.cost_description:
+            self.cost_desc_text.insert("1.0", wo.cost_description)
+
     def _on_save(self):
         title = self.title_entry.get().strip()
         if not title:
@@ -204,7 +220,6 @@ class WorkOrderDialog(tk.Toplevel):
         op_key = self.operator_combo.get()
         operator_id = self.operator_map.get(op_key) if op_key else None
 
-        # Failure report time
         failure_report_time = None
         if self.failure_date.get() and self.failure_time.get().strip():
             try:
@@ -222,18 +237,27 @@ class WorkOrderDialog(tk.Toplevel):
         operator_signature = self.op_signature_entry.get().strip() or None
         parts_used = self.parts_text.get("1.0", tk.END).strip() or None
 
+        manual_cost = 0.0
+        try:
+            manual_cost = float(self.manual_cost_entry.get().strip())
+        except:
+            pass
+        cost_description = self.cost_desc_text.get("1.0", tk.END).strip() or None
+
         if self.work_order:
             success, msg = self.wo_repo.update_work_order(
                 self.work_order.id,
                 title, equipment_id, type_str, priority,
                 technician_id, scheduled_date, description, parts_used,
-                operator_id, failure_report_time, operator_notes, operator_signature
+                operator_id, failure_report_time, operator_notes, operator_signature,
+                manual_cost=manual_cost, cost_description=cost_description
             )
         else:
             success, msg = self.wo_repo.create_work_order(
                 title, equipment_id, type_str, priority,
                 technician_id, scheduled_date, description, parts_used, None,
-                operator_id, failure_report_time, operator_notes, operator_signature
+                operator_id, failure_report_time, operator_notes, operator_signature,
+                manual_cost=manual_cost, cost_description=cost_description
             )
 
         if success:

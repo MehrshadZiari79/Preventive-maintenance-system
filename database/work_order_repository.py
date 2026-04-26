@@ -12,7 +12,8 @@ class WorkOrderRepository:
                           technician_id=None, scheduled_date=None,
                           description=None, parts_used=None, schedule_id=None,
                           operator_id=None, failure_report_time=None,
-                          operator_notes=None, operator_signature=None):
+                          operator_notes=None, operator_signature=None,
+                          manual_cost=0.0, cost_description=None):
         db = SessionLocal()
         try:
             wo_type = (WorkOrderType[type_str.upper()]
@@ -38,6 +39,8 @@ class WorkOrderRepository:
                 parts_used=parts_used or None,
                 scheduled_date=scheduled_date,
                 status=WorkOrderStatus.PENDING,
+                manual_cost=manual_cost,
+                cost_description=cost_description,
             )
             db.add(wo)
             db.commit()
@@ -53,7 +56,8 @@ class WorkOrderRepository:
                           priority, technician_id=None, scheduled_date=None,
                           description=None, parts_used=None,
                           operator_id=None, failure_report_time=None,
-                          operator_notes=None, operator_signature=None):
+                          operator_notes=None, operator_signature=None,
+                          manual_cost=None, cost_description=None):
         db = SessionLocal()
         try:
             wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
@@ -63,7 +67,6 @@ class WorkOrderRepository:
             wo_type = (WorkOrderType[type_str.upper()]
                        if type_str.upper() in WorkOrderType.__members__
                        else WorkOrderType.CORRECTIVE)
-
             wo_priority = (WorkOrderPriority[priority.upper()]
                            if priority and priority.upper() in WorkOrderPriority.__members__
                            else WorkOrderPriority.MEDIUM)
@@ -80,6 +83,10 @@ class WorkOrderRepository:
             wo.scheduled_date = scheduled_date
             wo.description = description or None
             wo.parts_used = parts_used or None
+            if manual_cost is not None:
+                wo.manual_cost = manual_cost
+            if cost_description is not None:
+                wo.cost_description = cost_description
             db.commit()
             return True, "دستور کار ویرایش شد."
         except Exception as e:
@@ -101,7 +108,6 @@ class WorkOrderRepository:
                 query = query.filter(WorkOrder.status == status_filter)
             if type_filter:
                 query = query.filter(WorkOrder.type == type_filter)
-
             results = query.order_by(WorkOrder.created_at.desc()).all()
             db.expunge_all()
             return results
@@ -171,7 +177,8 @@ class WorkOrderRepository:
         finally:
             db.close()
 
-    def complete_work(self, work_order_id, description=None, parts_used=None, used_parts_list=None):
+    def complete_work(self, work_order_id, description=None, parts_used=None, used_parts_list=None,
+                      manual_cost=None, cost_description=None):
         db = SessionLocal()
         try:
             wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
@@ -190,6 +197,12 @@ class WorkOrderRepository:
             if parts_used:
                 wo.parts_used = parts_used
 
+            # Update manual cost fields if provided
+            if manual_cost is not None:
+                wo.manual_cost = manual_cost
+            if cost_description is not None:
+                wo.cost_description = cost_description
+
             if wo.schedule_id:
                 from database.pm_repository import PMRepository
                 pm_repo = PMRepository()
@@ -206,7 +219,6 @@ class WorkOrderRepository:
         finally:
             db.close()
 
-    # ---------------------- NEW APPROVE METHOD ----------------------
     def approve(self, work_order_id, supervisor_id):
         db = SessionLocal()
         try:
@@ -263,11 +275,7 @@ class WorkOrderRepository:
                 WorkOrder.scheduled_date == scheduled_date
             ).first()
             if wo:
-                return {
-                    'id': wo.id,
-                    'title': wo.title,
-                    'status': wo.status.value
-                }
+                return {'id': wo.id, 'title': wo.title, 'status': wo.status.value}
             return None
         finally:
             db.close()
@@ -290,6 +298,8 @@ class WorkOrderRepository:
                 parts_used=None,
                 scheduled_date=due_date,
                 created_at=datetime.utcnow(),
+                manual_cost=0.0,
+                cost_description=None
             )
             db.add(wo)
             db.commit()
