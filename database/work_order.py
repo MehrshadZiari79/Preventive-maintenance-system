@@ -1,5 +1,5 @@
 # database/work_order.py
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum as SAEnum, Index, Numeric
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum as SAEnum, Index, Numeric, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -54,7 +54,6 @@ class WorkOrder(Base):
     description      = Column(Text, nullable=True)
     parts_used       = Column(Text, nullable=True)
 
-    # Manual cost fields
     manual_cost      = Column(Numeric(10, 2), default=0.0, nullable=False)
     cost_description = Column(Text, nullable=True)
 
@@ -68,7 +67,6 @@ class WorkOrder(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
     equipment  = relationship("Equipment", backref="work_orders")
     technician = relationship("User", foreign_keys=[technician_id], backref="assigned_work_orders")
     supervisor = relationship("User", foreign_keys=[supervisor_id], backref="supervised_work_orders")
@@ -78,6 +76,7 @@ class WorkOrder(Base):
     __table_args__ = (
         Index("ix_work_orders_status_scheduled", "status", "scheduled_date"),
         Index("ix_work_orders_equipment_status", "equipment_id", "status"),
+        UniqueConstraint("schedule_id", "scheduled_date", name="uq_wo_schedule_date"),
     )
 
     def __repr__(self):

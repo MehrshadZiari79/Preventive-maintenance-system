@@ -7,6 +7,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import func, case, and_
 from database.db import SessionLocal
 from database.models import PMSchedule, Equipment, User, PMFrequency
+from utils.logger import log_action
 
 
 FREQUENCY_DAYS = {
@@ -155,6 +156,9 @@ class PMRepository:
                frequency: str, interval_days: int, start_date: datetime,
                checklist: str, estimated_duration: Optional[int],
                notes: str, parts_required: Optional[str] = None) -> tuple[bool, str]:
+        if self.duplicate_pm_exists(equipment_id, title, frequency):
+            return False, "یک برنامه PM مشابه برای این تجهیز و دوره تناوب وجود دارد."
+        # ... existing code ...
         try:
             next_due = start_date + timedelta(days=interval_days)
             with self._session() as session:
@@ -174,6 +178,7 @@ class PMRepository:
                 )
                 session.add(schedule)
                 session.commit()
+                log_action("CREATE", "pm_schedule", schedule.id, f"عنوان: {title}")
             return True, "برنامه PM با موفقیت ثبت شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -183,6 +188,8 @@ class PMRepository:
                next_due: datetime, checklist: str,
                estimated_duration: Optional[int], notes: str,
                parts_required: Optional[str] = None) -> tuple[bool, str]:
+        if self.duplicate_pm_exists(equipment_id, title, frequency, exclude_id=schedule_id):
+            return False, "یک برنامه PM دیگر با همین عنوان و دوره برای این تجهیز وجود دارد."
         try:
             with self._session() as session:
                 s = session.query(PMSchedule).filter(PMSchedule.id == schedule_id).first()
@@ -200,6 +207,7 @@ class PMRepository:
                 s.parts_required     = parts_required or None
                 s.updated_at         = datetime.utcnow()
                 session.commit()
+                log_action("UPDATE", "pm_schedule", schedule_id, f"عنوان: {title}")
             return True, "برنامه PM بروزرسانی شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -214,6 +222,7 @@ class PMRepository:
                 s.next_due   = done_date + timedelta(days=s.interval_days)
                 s.updated_at = datetime.utcnow()
                 session.commit()
+                log_action("MARK_DONE", "pm_schedule", schedule_id, f"done date: {done_date}")
             return True, "PM انجام شده ثبت شد و تاریخ بعدی محاسبه گردید."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -228,6 +237,7 @@ class PMRepository:
                 s.updated_at = datetime.utcnow()
                 session.commit()
                 state = "فعال" if s.is_active else "غیرفعال"
+                log_action("TOGGLE", "pm_schedule", schedule_id, f"active: {s.is_active}")
             return True, f"برنامه {state} شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -240,10 +250,21 @@ class PMRepository:
                     return False, "برنامه یافت نشد."
                 session.delete(s)
                 session.commit()
+                log_action("DELETE", "pm_schedule", schedule_id, "")
             return True, "برنامه PM حذف شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
-
+    def duplicate_pm_exists(self, equipment_id: int, title: str, frequency: str, exclude_id: int = None) -> bool:
+        """Check if a PM schedule already exists for the same equipment, title, and frequency."""
+        with self._session() as session:
+            query = session.query(PMSchedule).filter(
+                PMSchedule.equipment_id == equipment_id,
+                PMSchedule.title == title,
+                PMSchedule.frequency == frequency
+            )
+            if exclude_id:
+                query = query.filter(PMSchedule.id != exclude_id)
+            return query.first() is not None
     # ─────────────────────────── HELPER ────────────────────────
     @staticmethod
     def _to_dict(s: PMSchedule) -> dict:

@@ -1,23 +1,29 @@
+# views/user_dialog.py
 """
 User Dialog - Add / Edit User Form
 """
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 from database.user_repository import UserRepository
-
+from database.models import UserRole
+from utils.theme import (
+    NAVY, WHITE, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
 class UserDialog(tk.Toplevel):
     """Modal dialog for creating or editing a user."""
 
-    ROLES = ["admin", "operator", "viewer"]
+    # Actual roles from the system
+    ROLES = [UserRole.ADMIN.value, UserRole.MANAGER.value, UserRole.TECHNICIAN.value]
 
     def __init__(self, parent, user_repo: UserRepository,
                  current_user: dict, user_data: dict = None):
         super().__init__(parent)
         self.user_repo = user_repo
         self.current_user = current_user
-        self.user_data = user_data          # None → create mode
+        self.user_data = user_data
         self.result = False
 
         self._setup_window()
@@ -29,13 +35,11 @@ class UserDialog(tk.Toplevel):
         self.grab_set()
         self.wait_window()
 
-    # ──────────────────────── SETUP ─────────────────────────────
-
     def _setup_window(self):
         title = "ویرایش کاربر" if self.user_data else "افزودن کاربر جدید"
         self.title(title)
         self.resizable(False, False)
-        self.configure(bg="#f0f4f8")
+        self.configure(bg=GRAY_BG)
         self.geometry("420x520")
         self._center()
 
@@ -45,21 +49,18 @@ class UserDialog(tk.Toplevel):
         y = (self.winfo_screenheight() - 520) // 2
         self.geometry(f"420x520+{x}+{y}")
 
-    # ──────────────────────── UI ────────────────────────────────
-
     def _build_ui(self):
         # Header
-        header = tk.Frame(self, bg="#1a73e8", height=60)
+        header = tk.Frame(self, bg=NAVY, height=60)
         header.pack(fill="x")
         header.pack_propagate(False)
         icon = "✏️" if self.user_data else "➕"
         title = "ویرایش کاربر" if self.user_data else "افزودن کاربر جدید"
         tk.Label(header, text=f"{icon}  {title}",
-                 bg="#1a73e8", fg="white",
-                 font=("Segoe UI", 13, "bold")).pack(expand=True)
+                 bg=NAVY, fg=WHITE, font=FONT_HEADING).pack(expand=True)
 
         # Form
-        form = tk.Frame(self, bg="#f0f4f8", padx=30, pady=20)
+        form = tk.Frame(self, bg=GRAY_BG, padx=30, pady=20)
         form.pack(fill="both", expand=True)
 
         self.entries = {}
@@ -70,13 +71,13 @@ class UserDialog(tk.Toplevel):
         for label, key, _ in fields:
             self._field(form, label, key)
 
-        # Role
-        tk.Label(form, text="نقش *", bg="#f0f4f8",
-                 font=("Segoe UI", 10), anchor="e").pack(fill="x", pady=(8, 2))
-        self.role_var = tk.StringVar(value="operator")
+        # Role (use actual role names)
+        tk.Label(form, text="نقش *", bg=GRAY_BG,
+                 font=FONT_NORMAL, anchor="e").pack(fill="x", pady=(8, 2))
+        self.role_var = tk.StringVar(value=UserRole.TECHNICIAN.value)
         role_cb = ttk.Combobox(form, textvariable=self.role_var,
                                values=self.ROLES, state="readonly",
-                               font=("Segoe UI", 10), justify="right")
+                               font=FONT_NORMAL, justify="right")
         role_cb.pack(fill="x", ipady=4)
         self.entries["role"] = role_cb
 
@@ -87,9 +88,9 @@ class UserDialog(tk.Toplevel):
         self._build_buttons(form)
 
     def _field(self, parent, label: str, key: str, show: str = ""):
-        tk.Label(parent, text=label, bg="#f0f4f8",
-                 font=("Segoe UI", 10), anchor="e").pack(fill="x", pady=(8, 2))
-        entry = ttk.Entry(parent, font=("Segoe UI", 10),
+        tk.Label(parent, text=label, bg=GRAY_BG,
+                 font=FONT_NORMAL, anchor="e").pack(fill="x", pady=(8, 2))
+        entry = ttk.Entry(parent, font=FONT_NORMAL,
                           justify="right", show=show)
         entry.pack(fill="x", ipady=4)
         self.entries[key] = entry
@@ -107,7 +108,7 @@ class UserDialog(tk.Toplevel):
         self._field(parent, "تکرار رمز عبور", "confirm", show="●")
 
     def _build_buttons(self, parent):
-        btn_frame = tk.Frame(parent, bg="#f0f4f8")
+        btn_frame = tk.Frame(parent, bg=GRAY_BG)
         btn_frame.pack(fill="x", pady=(16, 0))
 
         ttk.Button(btn_frame, text="انصراف",
@@ -116,12 +117,14 @@ class UserDialog(tk.Toplevel):
                    style="Accent.TButton",
                    command=self._save).pack(side="right")
 
-    # ──────────────────────── LOGIC ─────────────────────────────
-
     def _populate(self, data: dict):
         self.entries["username"].insert(0, data["username"])
         self.entries["full_name"].insert(0, data.get("full_name", ""))
-        self.role_var.set(data.get("role", "operator"))
+        role = data.get("role", UserRole.TECHNICIAN.value)
+        # Ensure role is one of the allowed values
+        if role not in self.ROLES:
+            role = UserRole.TECHNICIAN.value
+        self.role_var.set(role)
 
     def _save(self):
         username = self.entries["username"].get().strip()
@@ -130,33 +133,27 @@ class UserDialog(tk.Toplevel):
         password = self.entries["password"].get()
         confirm = self.entries["confirm"].get()
 
-        # Validation
         if not username or not full_name:
             messagebox.showwarning("ناقص", "نام کاربری و نام کامل الزامی است.",
                                    parent=self)
             return
-
         if len(username) < 3:
             messagebox.showwarning("خطا", "نام کاربری باید حداقل ۳ کاراکتر باشد.",
                                    parent=self)
             return
-
         if password != confirm:
             messagebox.showwarning("خطا", "رمز عبور و تکرار آن یکسان نیستند.",
                                    parent=self)
             return
-
         if not self.user_data and not password:
             messagebox.showwarning("خطا", "رمز عبور برای کاربر جدید الزامی است.",
                                    parent=self)
             return
-
         if password and len(password) < 6:
             messagebox.showwarning("خطا", "رمز عبور باید حداقل ۶ کاراکتر باشد.",
                                    parent=self)
             return
 
-        # Persist
         if self.user_data:
             ok, msg = self.user_repo.update_user(
                 self.user_data["id"], username, full_name, role)

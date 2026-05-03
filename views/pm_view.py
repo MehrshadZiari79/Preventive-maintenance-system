@@ -1,3 +1,4 @@
+# views/pm_view.py
 """
 PM Schedule View - Preventive Maintenance Schedule Management
 """
@@ -6,6 +7,12 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 from services.pm_service import PMService
 from views.export_dialog import run_pm_export
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
+
 try:
     import jdatetime
     HAS_JDATETIME = True
@@ -13,25 +20,25 @@ except ImportError:
     HAS_JDATETIME = False
 
 # ─────────────────────────── Theme ───────────────────────────
-BG         = "#F0F4F8"
-WHITE      = "#FFFFFF"
-HEADER_BG  = "#1A73E8"
+BG         = GRAY_BG
+WHITE      = WHITE
+HEADER_BG  = NAVY
 SIDEBAR_BG = "#E8F0FE"
-TEXT       = "#202124"
-SUBTLE     = "#5F6368"
-BORDER     = "#DADCE0"
-RED        = "#D93025"
-GREEN      = "#1E8E3E"
-ORANGE     = "#F29900"
+TEXT       = TEXT_DARK
+SUBTLE     = TEXT_LIGHT
+BORDER     = GRAY_BORDER
+RED        = RED
+GREEN      = SUCCESS
+ORANGE     = WARNING
 YELLOW_BG  = "#FFF8E1"
 RED_BG     = "#FCE8E6"
 GREEN_BG   = "#E6F4EA"
 
-FONT_TITLE  = ("Tahoma", 14, "bold")
-FONT_LABEL  = ("Tahoma", 10, "bold")
-FONT_INPUT  = ("Tahoma", 10)
-FONT_SMALL  = ("Tahoma", 9)
-FONT_STAT   = ("Tahoma", 18, "bold")
+FONT_TITLE  = FONT_TITLE
+FONT_LABEL  = FONT_HEADING
+FONT_INPUT  = FONT_NORMAL
+FONT_SMALL  = FONT_SMALL
+FONT_STAT   = FONT_HEADING
 
 
 def _to_jalali(date_str: str) -> str:
@@ -54,6 +61,7 @@ class PMView(tk.Frame):
         self.equipment_repo = equipment_repo
         self.user_repo      = user_repo
         self.current_user   = current_user
+        self.is_manager     = current_user["role"] in ["admin", "manager"]
         self._service       = PMService()
 
         self._filter_var  = tk.StringVar(value="همه")
@@ -80,18 +88,20 @@ class PMView(tk.Frame):
                  font=FONT_TITLE, bg=HEADER_BG, fg=WHITE).pack(
             side="right", padx=20, pady=14)
 
-        tk.Button(hdr, text="➕  برنامه جدید", font=FONT_LABEL,
-                  bg=WHITE, fg=HEADER_BG, relief="flat",
-                  padx=14, pady=6, cursor="hand2",
-                  command=self._add).pack(side="left", padx=16, pady=12)
+        if self.is_manager:
+            tk.Button(hdr, text="➕  برنامه جدید", font=FONT_LABEL,
+                      bg=WHITE, fg=HEADER_BG, relief="flat",
+                      padx=14, pady=6, cursor="hand2",
+                      command=self._add).pack(side="left", padx=16, pady=12)
 
-        tk.Button(hdr, text="🔄  ایجاد دستورکارها", font=FONT_LABEL,
-                  bg=WHITE, fg=HEADER_BG, relief="flat",
-                  padx=14, pady=6, cursor="hand2",
-                  command=self._generate_work_orders).pack(side="left", padx=8, pady=12)
+            tk.Button(hdr, text="🔄  ایجاد دستورکارها", font=FONT_LABEL,
+                      bg=WHITE, fg=HEADER_BG, relief="flat",
+                      padx=14, pady=6, cursor="hand2",
+                      command=self._generate_work_orders).pack(side="left", padx=8, pady=12)
 
+        # Export button visible to all
         tk.Button(hdr, text="📤  Excel خروجی ", font=FONT_LABEL,
-                  bg="#34A853", fg=WHITE, relief="flat",
+                  bg=SUCCESS, fg=WHITE, relief="flat",
                   padx=14, pady=6, cursor="hand2",
                   command=self._export).pack(side="left", padx=8, pady=12)
 
@@ -106,6 +116,9 @@ class PMView(tk.Frame):
 
     def _generate_work_orders(self):
         """Generate work orders for all due PM schedules."""
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند دستورکارها را ایجاد کنند.", parent=self)
+            return
         if not messagebox.askyesno("تایید", "آیا می‌خواهید دستورکارهای سررسید را ایجاد کنید؟"):
             return
 
@@ -223,6 +236,9 @@ class PMView(tk.Frame):
         self._build_context_menu()
 
     def _build_context_menu(self):
+        # Only managers/admins get context menu
+        if not self.is_manager:
+            return
         self._menu = tk.Menu(self, tearoff=0, font=FONT_INPUT)
         self._menu.add_command(label="✏️  ویرایش",           command=self._edit)
         self._menu.add_command(label="✅  ثبت انجام PM",     command=self._mark_done)
@@ -233,6 +249,8 @@ class PMView(tk.Frame):
         self.tree.bind("<Button-3>", self._show_menu)
 
     def _show_menu(self, event):
+        if not self.is_manager:
+            return
         row = self.tree.identify_row(event.y)
         if row:
             self.tree.selection_set(row)
@@ -327,6 +345,9 @@ class PMView(tk.Frame):
         return int(sel[0])
 
     def _add(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند برنامه PM اضافه کنند.", parent=self)
+            return
         from views.pm_dialog import PMDialog
         dlg = PMDialog(self, self.pm_repo, self.equipment_repo, self.user_repo)
         self.wait_window(dlg)
@@ -334,6 +355,9 @@ class PMView(tk.Frame):
             self._load()
 
     def _edit(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند برنامه PM را ویرایش کنند.", parent=self)
+            return
         sid = self._selected_id()
         if sid is None:
             return
@@ -348,6 +372,9 @@ class PMView(tk.Frame):
             self._load()
 
     def _mark_done(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند انجام PM را ثبت کنند.", parent=self)
+            return
         sid = self._selected_id()
         if sid is None:
             return
@@ -359,6 +386,9 @@ class PMView(tk.Frame):
                 messagebox.showerror("خطا", msg)
 
     def _toggle(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند وضعیت فعال/غیرفعال PM را تغییر دهند.", parent=self)
+            return
         sid = self._selected_id()
         if sid is None:
             return
@@ -366,6 +396,9 @@ class PMView(tk.Frame):
         self._load()
 
     def _delete(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند برنامه PM را حذف کنند.", parent=self)
+            return
         sid = self._selected_id()
         if sid is None:
             return

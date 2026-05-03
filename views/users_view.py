@@ -1,11 +1,16 @@
+# views/users_view.py
 """
 Users View - Main User Management Panel
 """
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 from database.user_repository import UserRepository
 from views.user_dialog import UserDialog
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
 
 class UsersView(tk.Frame):
@@ -21,7 +26,12 @@ class UsersView(tk.Frame):
     }
 
     def __init__(self, parent, user_repo: UserRepository, current_user: dict):
-        super().__init__(parent, bg="#f0f4f8")
+        super().__init__(parent, bg=GRAY_BG)
+        # Only admin can access this view
+        if current_user["role"] != "admin":
+            messagebox.showerror("خطا", "دسترسی غیرمجاز. فقط مدیر سیستم می‌تواند کاربران را مدیریت کند.", parent=parent)
+            self.destroy()
+            return
         self.user_repo = user_repo
         self.current_user = current_user
         self._build_ui()
@@ -36,43 +46,41 @@ class UsersView(tk.Frame):
         self._build_statusbar()
 
     def _build_header(self):
-        header = tk.Frame(self, bg="#1a73e8", height=56)
+        header = tk.Frame(self, bg=NAVY, height=56)
         header.pack(fill="x")
         header.pack_propagate(False)
         tk.Label(header, text="👥  مدیریت کاربران",
-                 bg="#1a73e8", fg="white",
-                 font=("Segoe UI", 14, "bold")).pack(expand=True)
+                 bg=NAVY, fg=WHITE, font=FONT_TITLE).pack(expand=True)
 
     def _build_toolbar(self):
-        bar = tk.Frame(self, bg="#ffffff", pady=8, padx=12)
+        bar = tk.Frame(self, bg=WHITE, pady=8, padx=12)
         bar.pack(fill="x")
 
         # Search
-        tk.Label(bar, text="🔍", bg="#ffffff",
-                 font=("Segoe UI", 11)).pack(side="right", padx=(0, 4))
+        tk.Label(bar, text="🔍", bg=WHITE, font=FONT_NORMAL).pack(side="right", padx=(0,4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search())
         search_entry = ttk.Entry(bar, textvariable=self.search_var,
-                                 width=22, font=("Segoe UI", 10),
+                                 width=22, font=FONT_NORMAL,
                                  justify="right")
         search_entry.pack(side="right", ipady=3)
 
         # Buttons (admin only)
         if self.current_user["role"] == "admin":
             ttk.Button(bar, text="➕ کاربر جدید",
-                       command=self._add_user).pack(side="left", padx=(0, 6))
+                       command=self._add_user).pack(side="left", padx=(0,6))
             ttk.Button(bar, text="✏️ ویرایش",
-                       command=self._edit_user).pack(side="left", padx=(0, 6))
+                       command=self._edit_user).pack(side="left", padx=(0,6))
             ttk.Button(bar, text="🔄 فعال/غیرفعال",
-                       command=self._toggle_user).pack(side="left", padx=(0, 6))
+                       command=self._toggle_user).pack(side="left", padx=(0,6))
             ttk.Button(bar, text="🗑️ حذف",
                        command=self._delete_user).pack(side="left")
 
         ttk.Button(bar, text="🔃 بازخوانی",
-                   command=self.load_users).pack(side="left", padx=(12, 0))
+                   command=self.load_users).pack(side="left", padx=(12,0))
 
     def _build_table(self):
-        container = tk.Frame(self, bg="#f0f4f8")
+        container = tk.Frame(self, bg=GRAY_BG)
         container.pack(fill="both", expand=True, padx=12, pady=8)
 
         cols = list(self.COLUMNS.keys())
@@ -99,17 +107,17 @@ class UsersView(tk.Frame):
         container.columnconfigure(0, weight=1)
 
         # Row tags
-        self.tree.tag_configure("active",   background="#e8f5e9")
-        self.tree.tag_configure("inactive", background="#fce4ec")
-        self.tree.tag_configure("admin_row", foreground="#1a73e8")
+        self.tree.tag_configure("active",   background="#E6F4EA")
+        self.tree.tag_configure("inactive", background="#FCE8E6")
+        self.tree.tag_configure("admin_row", foreground=NAVY)
 
         self.tree.bind("<Double-1>", lambda _: self._edit_user())
 
     def _build_statusbar(self):
         self.status_var = tk.StringVar(value="در حال بارگذاری...")
         tk.Label(self, textvariable=self.status_var,
-                 bg="#e8eaf6", fg="#555", anchor="e",
-                 font=("Segoe UI", 9), padx=10).pack(fill="x", side="bottom")
+                 bg=GRAY_BORDER, fg=TEXT_LIGHT, anchor="e",
+                 font=FONT_SMALL, padx=10).pack(fill="x", side="bottom")
 
     # ──────────────────────── DATA ──────────────────────────────
 
@@ -138,7 +146,6 @@ class UsersView(tk.Frame):
         self.load_users(results)
 
     def _sort(self, col: str):
-        """Toggle sort on column header click."""
         items = [(self.tree.set(k, col), k)
                  for k in self.tree.get_children("")]
         items.sort(reverse=getattr(self, "_sort_reverse", False))

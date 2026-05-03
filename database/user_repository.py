@@ -1,3 +1,4 @@
+# database/user_repository.py
 """
 User Repository - Data Access Layer for User Management
 """
@@ -5,6 +6,7 @@ import hashlib
 from typing import Optional
 from database.db import SessionLocal
 from database.models import User
+from utils.logger import log_action
 
 
 def _hash_password(password: str) -> str:
@@ -67,6 +69,7 @@ class UserRepository:
                 )
                 session.add(user)
                 session.commit()
+                log_action("CREATE", "user", user.id, f"نام کاربری: {username}, نقش: {role}")
             return True, "کاربر با موفقیت ایجاد شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -84,6 +87,7 @@ class UserRepository:
                 user.full_name = full_name
                 user.role = role
                 session.commit()
+                log_action("UPDATE", "user", user_id, f"نام کاربری جدید: {username}, نقش: {role}")
             return True, "اطلاعات کاربر بروزرسانی شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -96,6 +100,7 @@ class UserRepository:
                     return False, "کاربر یافت نشد."
                 user.password_hash = _hash_password(new_password)
                 session.commit()
+                log_action("CHANGE_PASSWORD", "user", user_id, "رمز عبور تغییر کرد")
             return True, "رمز عبور با موفقیت تغییر کرد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -108,6 +113,7 @@ class UserRepository:
                     return False, "کاربر یافت نشد."
                 user.is_active = not user.is_active
                 session.commit()
+                log_action("TOGGLE_ACTIVE", "user", user_id, f"فعال: {user.is_active}")
             return True, "وضعیت کاربر تغییر کرد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -120,6 +126,7 @@ class UserRepository:
                     return False, "کاربر یافت نشد."
                 session.delete(user)
                 session.commit()
+                log_action("DELETE", "user", user_id, "")
             return True, "کاربر حذف شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"

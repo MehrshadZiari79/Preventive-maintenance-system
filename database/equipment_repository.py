@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import func, case
 from database.db import SessionLocal
 from database.models import Equipment
+from utils.logger import log_action
 
 
 class EquipmentRepository:
@@ -68,11 +69,21 @@ class EquipmentRepository:
             result = session.query(Equipment.category).distinct().all()
             return sorted([r[0] for r in result if r[0]])
 
+    def is_category_used(self, category: str) -> bool:
+        """Check if any equipment uses this category."""
+        with self._session() as session:
+            return session.query(Equipment).filter(Equipment.category == category).first() is not None
+
+    def delete_category(self, category: str) -> tuple[bool, str]:
+        """Delete a category (only if not used)."""
+        if self.is_category_used(category):
+            return False, "این دسته‌بندی در حال استفاده است."
+        # Categories are not stored in a separate table; they are just values in equipment.category.
+        # To "delete" a category, we only need to ensure it is not used. Since it's not used,
+        # it will no longer appear in get_categories().
+        return True, f"دسته‌بندی '{category}' از لیست دسته‌بندی‌ها حذف شد."
+
     def get_stats(self) -> dict:
-        """
-        Fixed: was 4 separate COUNT queries.
-        Now: 1 query using conditional aggregation.
-        """
         with self._session() as session:
             row = session.query(
                 func.count(Equipment.id).label("total"),
@@ -81,7 +92,6 @@ class EquipmentRepository:
                 func.sum(case((Equipment.status == "breakdown",  1), else_=0)).label("breakdown"),
                 func.sum(case((Equipment.status == "inactive",   1), else_=0)).label("inactive"),
             ).one()
-
             return {
                 "total":       row.total       or 0,
                 "operational": row.operational or 0,
@@ -115,6 +125,7 @@ class EquipmentRepository:
                 )
                 session.add(equipment)
                 session.commit()
+                log_action("CREATE", "equipment", equipment.id, f"کد: {code}, نام: {name}")
             return True, "تجهیز با موفقیت ثبت شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -148,6 +159,7 @@ class EquipmentRepository:
                 equipment.updated_at       = datetime.utcnow()
 
                 session.commit()
+                log_action("UPDATE", "equipment", equipment_id, f"کد: {code}, نام: {name}")
             return True, "اطلاعات تجهیز بروزرسانی شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -163,6 +175,7 @@ class EquipmentRepository:
                 equipment.status     = new_status
                 equipment.updated_at = datetime.utcnow()
                 session.commit()
+                log_action("UPDATE_STATUS", "equipment", equipment_id, f"وضعیت جدید: {new_status}")
             return True, "وضعیت تجهیز تغییر کرد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"
@@ -177,6 +190,7 @@ class EquipmentRepository:
                     return False, "تجهیز یافت نشد."
                 session.delete(equipment)
                 session.commit()
+                log_action("DELETE", "equipment", equipment_id, "")
             return True, "تجهیز حذف شد."
         except Exception as e:
             return False, f"خطای پایگاه داده: {e}"

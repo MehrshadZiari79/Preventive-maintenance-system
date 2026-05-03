@@ -17,13 +17,13 @@ class PMDialog(tk.Toplevel):
         self.callback = callback
         self.result = False
 
-        self.title("ویرایش برنامه PM" if schedule else "برنامه-PM-جدید")
+        self.title("ویرایش برنامه PM" if schedule else "برنامه PM جدید")
         self.geometry("750x850")
         self.resizable(False, False)
 
         self.sp_repo = SparePartsRepository(SessionLocal())
         self.all_parts = self.sp_repo.get_all()
-        self.selected_parts = []  # list of {"part_id": id, "quantity": int, "part_number": str, "name": str, "stock": int}
+        self.selected_parts = []
 
         self._build_ui()
         if schedule:
@@ -69,7 +69,7 @@ class PMDialog(tk.Toplevel):
         self.start_date = DateEntry(main, width=47, date_pattern='yyyy-mm-dd')
         self.start_date.grid(row=5, column=0, pady=5, padx=5)
 
-        # Checklist / Instructions
+        # Checklist
         ttk.Label(main, text="چک‌لیست / دستورالعمل:", font=("Arial", 10)).grid(row=6, column=1, sticky=tk.NE, pady=5)
         self.checklist_text = tk.Text(main, width=50, height=4, font=("Arial", 9))
         self.checklist_text.grid(row=6, column=0, pady=5, padx=5)
@@ -164,7 +164,6 @@ class PMDialog(tk.Toplevel):
                 return
             for p in self.all_parts:
                 if f"{p.part_number} - {p.name}" == selection:
-                    # Check if already added
                     for item in self.selected_parts:
                         if item['part_id'] == p.id:
                             messagebox.showwarning("تکرار", "این قطعه قبلاً اضافه شده است.")
@@ -206,8 +205,7 @@ class PMDialog(tk.Toplevel):
         eq_key = f"{s['equipment_code']} - {s['equipment_name']}"
         if eq_key in self.equipment_map:
             self.equipment_combo.set(eq_key)
-        tech_key = f"{s['technician_name']}"
-        # simple match – better to use full name but keep simple
+        tech_key = s['technician_name']
         for k in self.tech_map:
             if s['technician_name'] in k:
                 self.technician_combo.set(k)
@@ -225,7 +223,6 @@ class PMDialog(tk.Toplevel):
             self.duration_entry.insert(0, str(s["estimated_duration"]))
         if s.get("notes"):
             self.notes_text.insert("1.0", s["notes"])
-        # Load parts_required JSON
         if s.get("parts_required"):
             try:
                 parts_list = json.loads(s["parts_required"])
@@ -273,14 +270,18 @@ class PMDialog(tk.Toplevel):
             estimated_duration = None
         notes = self.notes_text.get("1.0", tk.END).strip() or None
 
-        # Build parts_required JSON
         parts_required = None
         if self.selected_parts:
             parts_required = json.dumps([{"part_id": p["part_id"], "quantity": p["quantity"]} for p in self.selected_parts])
 
+        # DUPLICATE CHECK
+        if self.pm_repo.duplicate_pm_exists(equipment_id, title, frequency,
+                                            exclude_id=self.schedule["id"] if self.schedule else None):
+            if not messagebox.askyesno("تکرار احتمالی",
+                                       "یک برنامه PM مشابه برای این تجهیز و دوره تناوب وجود دارد. آیا همچنان ادامه می‌دهید؟"):
+                return
+
         if self.schedule:
-            # Get next_due from original schedule? For update, we use start_date as next_due
-            # But update expects next_due datetime. We'll use start_date as next_due.
             success, msg = self.pm_repo.update(
                 self.schedule["id"], title, equipment_id, technician_id,
                 frequency, interval_days, start_date, checklist,

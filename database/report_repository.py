@@ -246,32 +246,47 @@ class ReportRepository:
                 "total": pm + cm + emergency,
             }
 
+    from datetime import timedelta
+
     def get_schedule_compliance(self, start_date=None, end_date=None):
+        """Return count of work orders completed on time vs late."""
+        from database.work_order import WorkOrder, WorkOrderStatus
+        from sqlalchemy import func
+        from datetime import timedelta
+
         with self._session() as session:
-            query = session.query(
-                func.count(WorkOrder.id).label("total"),
-                func.sum(case((WorkOrder.end_time <= WorkOrder.scheduled_date, 1), else_=0)).label("on_time"),
-            ).filter(
-                WorkOrder.type.in_([WorkOrderType.PREVENTIVE, WorkOrderType.PM]),
+            query = session.query(WorkOrder).filter(
                 WorkOrder.status == WorkOrderStatus.COMPLETED,
                 WorkOrder.scheduled_date.isnot(None),
-                WorkOrder.end_time.isnot(None),
+                WorkOrder.end_time.isnot(None)
             )
             if start_date:
-                query = query.filter(WorkOrder.created_at >= start_date)
+                query = query.filter(WorkOrder.scheduled_date >= start_date)
             if end_date:
-                query = query.filter(WorkOrder.created_at <= end_date)
-            row = query.one()
-            total = row.total or 0
-            on_time = row.on_time or 0
-            compliance = (on_time / total * 100) if total > 0 else 0
-            return {
-                "total_tasks": total,
-                "on_time": on_time,
-                "late": total - on_time,
-                "compliance_rate": round(compliance, 2),
-            }
+                query = query.filter(WorkOrder.scheduled_date <= end_date)
 
+            on_time = 0
+            late = 0
+            for wo in query.all():
+                # convert both to date objects
+                scheduled_date = wo.scheduled_date
+                if isinstance(scheduled_date, datetime):
+                    scheduled_date = scheduled_date.date()
+                completion_date = wo.end_time.date()
+                # On time if completed on or before scheduled date + 1 day grace
+                if completion_date <= scheduled_date + timedelta(days=1):
+                    on_time += 1
+                else:
+                    late += 1
+
+            total = on_time + late
+            rate = (on_time / total * 100) if total > 0 else 0
+            return {
+                "on_time": on_time,
+                "late": late,
+                "total_tasks": total,
+                "compliance_rate": round(rate, 1)
+            }
     # ==================== COST ANALYSIS ====================
     def get_cost_analysis(self, start_date=None, end_date=None):
         with self._session() as session:

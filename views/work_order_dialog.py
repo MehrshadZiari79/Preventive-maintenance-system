@@ -154,48 +154,36 @@ class WorkOrderDialog(tk.Toplevel):
     def _load_data(self):
         wo = self.work_order
         self.title_entry.insert(0, wo.title or "")
-
         eq_key = f"{wo.equipment.code} - {wo.equipment.name}" if wo.equipment else ""
         if eq_key in self.equipment_map:
             self.equipment_combo.set(eq_key)
-
         self.type_var.set(wo.type.name)
         self.priority_var.set(wo.priority.name if wo.priority else "MEDIUM")
-
         if wo.technician:
             tech_key = f"{wo.technician.full_name} ({wo.technician.username})"
             if tech_key in self.tech_map:
                 self.technician_combo.set(tech_key)
-
         if wo.operator:
             op_key = f"{wo.operator.full_name} ({wo.operator.username})"
             if op_key in self.operator_map:
                 self.operator_combo.set(op_key)
-
         if wo.failure_report_time:
             self.failure_date.set_date(wo.failure_report_time.date())
             self.failure_time.delete(0, tk.END)
             self.failure_time.insert(0, wo.failure_report_time.strftime("%H:%M"))
-
         if wo.scheduled_date:
             self.scheduled_date.set_date(wo.scheduled_date)
-
         if wo.description:
             self.desc_text.insert("1.0", wo.description)
-
         if wo.operator_notes:
             self.op_notes_text.insert("1.0", wo.operator_notes)
-
         if wo.operator_signature:
             self.op_signature_entry.insert(0, wo.operator_signature)
-
         if wo.parts_used:
             self.parts_text.insert("1.0", wo.parts_used)
-
         if wo.manual_cost:
             self.manual_cost_entry.delete(0, tk.END)
             self.manual_cost_entry.insert(0, str(wo.manual_cost))
-
         if wo.cost_description:
             self.cost_desc_text.insert("1.0", wo.cost_description)
 
@@ -243,6 +231,14 @@ class WorkOrderDialog(tk.Toplevel):
         except:
             pass
         cost_description = self.cost_desc_text.get("1.0", tk.END).strip() or None
+
+        # DUPLICATE CHECK (same equipment + scheduled date)
+        if scheduled_date:
+            if self.wo_repo.duplicate_exists(equipment_id, scheduled_date,
+                                             exclude_id=self.work_order.id if self.work_order else None):
+                if not messagebox.askyesno("تکرار احتمالی",
+                                           "یک دستور کار برای این تجهیز در تاریخ مشابه وجود دارد. آیا همچنان ادامه می‌دهید؟"):
+                    return
 
         if self.work_order:
             success, msg = self.wo_repo.update_work_order(

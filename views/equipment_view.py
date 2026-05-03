@@ -1,3 +1,4 @@
+# views/equipment_view.py
 """
 Equipment View - Equipment Management Interface
 """
@@ -5,20 +6,26 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from database.models import EquipmentStatus
 from views.equipment_dialog import EquipmentDialog
+from views.category_manager_dialog import CategoryManagerDialog
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
-BG = "#F0F4F8"
-WHITE = "#FFFFFF"
-PRIMARY = "#1A73E8"
-TEXT = "#202124"
-SUBTLE = "#5F6368"
-BORDER = "#DADCE0"
-SUCCESS = "#34A853"
-WARNING = "#FBBC04"
-DANGER = "#EA4335"
+BG = GRAY_BG
+WHITE = WHITE
+PRIMARY = NAVY
+TEXT = TEXT_DARK
+SUBTLE = TEXT_LIGHT
+BORDER = GRAY_BORDER
+SUCCESS = SUCCESS
+WARNING = WARNING
+DANGER = RED
 
-FONT_TITLE = ("Vazir", 14, "bold")
-FONT_NORMAL = ("Vazir", 10)
-FONT_SMALL = ("Vazir", 9)
+FONT_TITLE = FONT_TITLE
+FONT_NORMAL = FONT_NORMAL
+FONT_SMALL = FONT_SMALL
 
 STATUS_FA = {
     EquipmentStatus.OPERATIONAL.value: "عملیاتی",
@@ -41,23 +48,43 @@ class EquipmentView(tk.Frame):
         self.equipment_repo = equipment_repo
         self.current_user = current_user
         self.is_admin = current_user["role"] == "admin"
+        self.is_manager = current_user["role"] in ["admin", "manager"]
 
         self._build_ui()
         self._load_data()
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=BG)
-        header.pack(fill="x", padx=30, pady=(30, 10))
+        # Header with navy background
+        header = tk.Frame(self, bg=PRIMARY, height=60)
+        header.pack(fill="x")
+        header.pack_propagate(False)
 
         tk.Label(header, text="⚙️  مدیریت تجهیزات", font=FONT_TITLE,
-                 bg=BG, fg=TEXT).pack(side="right")
+                 bg=PRIMARY, fg=WHITE).pack(side="right", padx=20, pady=12)
 
-        tk.Button(header, text="➕ افزودن تجهیز", font=FONT_NORMAL, bg=PRIMARY, fg=WHITE,
-                  relief="flat", cursor="hand2", command=self._add_equipment,
-                  padx=15, pady=8).pack(side="left", padx=5)
+        btn_frame = tk.Frame(header, bg=PRIMARY)
+        btn_frame.pack(side="left", padx=10)
 
+        # Only managers and admins can add equipment
+        if self.is_manager:
+            tk.Button(btn_frame, text="➕ افزودن تجهیز", font=FONT_NORMAL,
+                      bg=WHITE, fg=PRIMARY, relief="flat", cursor="hand2",
+                      padx=12, pady=5, command=self._add_equipment).pack(side="left", padx=5)
+
+        # Category manager – also only managers
+        if self.is_manager:
+            tk.Button(btn_frame, text="🏷️ مدیریت دسته‌بندی", font=FONT_NORMAL,
+                      bg=WHITE, fg=PRIMARY, relief="flat", cursor="hand2",
+                      padx=12, pady=5, command=self._manage_categories).pack(side="left", padx=5)
+
+        # Export is available to everyone
+        tk.Button(btn_frame, text="📤 خروجی Excel", font=FONT_NORMAL,
+                  bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
+                  padx=12, pady=5, command=self._export).pack(side="left", padx=5)
+
+        # Stats bar
         stats_frame = tk.Frame(self, bg=BG)
-        stats_frame.pack(fill="x", padx=30, pady=(0, 10))
+        stats_frame.pack(fill="x", padx=20, pady=(10, 0))
 
         self.stat_labels = {}
         stats = [
@@ -69,29 +96,30 @@ class EquipmentView(tk.Frame):
 
         for key, label, color in stats:
             card = tk.Frame(stats_frame, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
-            card.pack(side="right", padx=5, ipadx=15, ipady=10)
+            card.pack(side="right", padx=5, ipadx=15, ipady=8)
             tk.Label(card, text=label, font=FONT_SMALL, bg=WHITE, fg=SUBTLE).pack()
-            lbl = tk.Label(card, text="0", font=("Vazir", 16, "bold"), bg=WHITE, fg=color)
+            lbl = tk.Label(card, text="0", font=FONT_HEADING, bg=WHITE, fg=color)
             lbl.pack()
             self.stat_labels[key] = lbl
 
+        # Toolbar: search, category filter, status filter
         toolbar = tk.Frame(self, bg=BG)
-        toolbar.pack(fill="x", padx=30, pady=(0, 10))
+        toolbar.pack(fill="x", padx=20, pady=(10, 5))
 
-        tk.Label(toolbar, text="جستجو:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(0, 5))
+        tk.Label(toolbar, text="جستجو:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(0,5))
         self.search_var = tk.StringVar()
         self.search_var.trace("w", lambda *_: self._load_data())
         tk.Entry(toolbar, textvariable=self.search_var, font=FONT_NORMAL,
-                 bg=WHITE, fg=TEXT, relief="solid", bd=1, width=25).pack(side="right", ipady=4)
+                 bg=WHITE, relief="solid", bd=1, width=25).pack(side="right", ipady=4)
 
-        tk.Label(toolbar, text="دسته:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(15, 5))
+        tk.Label(toolbar, text="دسته:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(15,5))
         self.category_var = tk.StringVar(value="همه")
         self.category_combo = ttk.Combobox(toolbar, textvariable=self.category_var,
                                            font=FONT_NORMAL, state="readonly", width=15)
         self.category_combo.pack(side="right", ipady=2)
         self.category_combo.bind("<<ComboboxSelected>>", lambda e: self._load_data())
 
-        tk.Label(toolbar, text="وضعیت:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(15, 5))
+        tk.Label(toolbar, text="وضعیت:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(15,5))
         self.status_var = tk.StringVar(value="همه")
         status_combo = ttk.Combobox(toolbar, textvariable=self.status_var,
                                     values=["همه"] + list(STATUS_FA.values()),
@@ -99,11 +127,12 @@ class EquipmentView(tk.Frame):
         status_combo.pack(side="right", ipady=2)
         status_combo.bind("<<ComboboxSelected>>", lambda e: self._load_data())
 
-        table_frame = tk.Frame(self, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
-        table_frame.pack(fill="both", expand=True, padx=30, pady=(0, 20))
+        # Table
+        table_container = tk.Frame(self, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
+        table_container.pack(fill="both", expand=True, padx=20, pady=(0, 20))
 
         cols = ("code", "name", "category", "location", "status", "updated")
-        self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=15)
+        self.tree = ttk.Treeview(table_container, columns=cols, show="headings", height=15)
 
         headers = [
             ("code", "کد", 100),
@@ -118,34 +147,38 @@ class EquipmentView(tk.Frame):
             self.tree.heading(col, text=text, command=lambda c=col: self._sort_column(c))
             self.tree.column(col, width=width, anchor="center")
 
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
-
         self.tree.pack(side="right", fill="both", expand=True)
         scrollbar.pack(side="left", fill="y")
 
         self.tree.bind("<Double-1>", lambda e: self._edit_equipment())
 
+        # Action buttons
         btn_frame = tk.Frame(self, bg=BG)
-        btn_frame.pack(fill="x", padx=30, pady=(0, 20))
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
 
-        tk.Button(btn_frame, text="✏️ ویرایش", font=FONT_NORMAL, bg=PRIMARY, fg=WHITE,
-                  relief="flat", cursor="hand2", command=self._edit_equipment,
-                  padx=15, pady=8).pack(side="right", padx=5)
-
-        tk.Button(btn_frame, text="🔄 تغییر وضعیت", font=FONT_NORMAL, bg=WARNING, fg=WHITE,
-                  relief="flat", cursor="hand2", command=self._change_status,
-                  padx=15, pady=8).pack(side="right", padx=5)
+        if self.is_manager:
+            tk.Button(btn_frame, text="✏️ ویرایش", font=FONT_NORMAL,
+                      bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=15, pady=8, command=self._edit_equipment).pack(side="right", padx=5)
+            tk.Button(btn_frame, text="🔄 تغییر وضعیت", font=FONT_NORMAL,
+                      bg=WARNING, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=15, pady=8, command=self._change_status).pack(side="right", padx=5)
 
         if self.is_admin:
-            tk.Button(btn_frame, text="🗑️ حذف", font=FONT_NORMAL, bg=DANGER, fg=WHITE,
-                      relief="flat", cursor="hand2", command=self._delete_equipment,
-                      padx=15, pady=8).pack(side="right", padx=5)
+            tk.Button(btn_frame, text="🗑️ حذف", font=FONT_NORMAL,
+                      bg=DANGER, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=15, pady=8, command=self._delete_equipment).pack(side="right", padx=5)
 
-        tk.Button(header, text="📤  Excel خروجی ", font=FONT_NORMAL,
-                  bg="#34A853", fg=WHITE, relief="flat", cursor="hand2",
-                  command=self._export, padx=15, pady=8).pack(side="left", padx=5)
-
+    def _manage_categories(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند دسته‌بندی‌ها را مدیریت کنند.", parent=self)
+            return
+        def refresh():
+            self._update_category_filter()
+        dialog = CategoryManagerDialog(self, self.equipment_repo, callback=refresh)
+        self.wait_window(dialog)
 
     def _load_data(self):
         for item in self.tree.get_children():
@@ -199,7 +232,6 @@ class EquipmentView(tk.Frame):
     def _sort_column(self, col):
         items = [(self.tree.set(k, col), k) for k in self.tree.get_children("")]
         items.sort(reverse=False)
-
         for index, (val, k) in enumerate(items):
             self.tree.move(k, "", index)
 
@@ -208,12 +240,14 @@ class EquipmentView(tk.Frame):
         if not selected:
             messagebox.showwarning("هشدار", "لطفاً یک تجهیز انتخاب کنید.", parent=self)
             return None
-
         values = self.tree.item(selected[0], "values")
         code = values[0]
         return self.equipment_repo.get_equipment_by_code(code)
 
     def _add_equipment(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند تجهیز اضافه کنند.", parent=self)
+            return
         dialog = EquipmentDialog(self, self.equipment_repo)
         self.wait_window(dialog)
         if dialog.result:
@@ -221,10 +255,12 @@ class EquipmentView(tk.Frame):
             messagebox.showinfo("موفق", "تجهیز با موفقیت اضافه شد.", parent=self)
 
     def _edit_equipment(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند تجهیز ویرایش کنند.", parent=self)
+            return
         equipment = self._get_selected_equipment()
         if not equipment:
             return
-
         dialog = EquipmentDialog(self, self.equipment_repo, equipment)
         self.wait_window(dialog)
         if dialog.result:
@@ -232,6 +268,9 @@ class EquipmentView(tk.Frame):
             messagebox.showinfo("موفق", "تجهیز با موفقیت ویرایش شد.", parent=self)
 
     def _change_status(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند وضعیت تجهیز را تغییر دهند.", parent=self)
+            return
         equipment = self._get_selected_equipment()
         if not equipment:
             return
@@ -260,7 +299,6 @@ class EquipmentView(tk.Frame):
             if not new_status_en:
                 messagebox.showerror("خطا", "وضعیت نامعتبر است.", parent=status_dialog)
                 return
-
             success, msg = self.equipment_repo.update_status(equipment["id"], new_status_en)
             if success:
                 status_dialog.destroy()
@@ -269,9 +307,9 @@ class EquipmentView(tk.Frame):
             else:
                 messagebox.showerror("خطا", msg, parent=status_dialog)
 
-        tk.Button(status_dialog, text="ذخیره", font=FONT_NORMAL, bg=PRIMARY, fg=WHITE,
-                  relief="flat", cursor="hand2", command=save_status,
-                  padx=20, pady=8).pack(pady=20)
+        tk.Button(status_dialog, text="ذخیره", font=FONT_NORMAL,
+                  bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
+                  padx=20, pady=8, command=save_status).pack(pady=20)
 
         status_dialog.transient(self)
         status_dialog.grab_set()
@@ -279,11 +317,13 @@ class EquipmentView(tk.Frame):
     def _export(self):
         from views.export_dialog import run_equipment_export
         selected = self._get_selected_equipment()
-        # Build current visible list from tree
         eq_list = self.equipment_repo.get_all_equipment()
         run_equipment_export(self, eq_list, selected_equipment=selected)
 
     def _delete_equipment(self):
+        if not self.is_admin:
+            messagebox.showwarning("دسترسی", "فقط مدیر سیستم می‌تواند تجهیز حذف کند.", parent=self)
+            return
         equipment = self._get_selected_equipment()
         if not equipment:
             return

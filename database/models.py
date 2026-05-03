@@ -281,8 +281,26 @@ class SparePart(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     transactions = relationship("SparePartTransaction", back_populates="part", cascade="all, delete-orphan")
+class Settings(Base):
+    __tablename__ = "settings"
+    id = Column(Integer, primary_key=True)
+    key = Column(String(100), unique=True, nullable=False)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
 
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    username = Column(String(50), nullable=False)
+    action = Column(String(50), nullable=False)  # CREATE, UPDATE, DELETE, LOGIN, LOGOUT, COMPLETE, APPROVE, REJECT
+    entity_type = Column(String(50), nullable=False)  # work_order, equipment, pm_schedule, user, spare_part, inspection
+    entity_id = Column(Integer, nullable=True)
+    details = Column(Text, nullable=True)  # JSON or description
+    ip_address = Column(String(45), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
+    user = relationship("User", backref="activity_logs")
 class SparePartTransaction(Base):
     __tablename__ = "spare_part_transactions"
 

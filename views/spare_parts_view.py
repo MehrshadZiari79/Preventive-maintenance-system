@@ -8,33 +8,42 @@ from tkinter import ttk, messagebox
 
 from services.spare_parts_service import SparePartsService
 from views.export_dialog import run_spare_parts_export
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
-# ─────────────────────────── Theme (same as other views) ────────────────────
-BG        = "#F0F4F8"
-WHITE     = "#FFFFFF"
-PRIMARY   = "#1A73E8"
-DANGER    = "#DC3545"
-SUCCESS   = "#28A745"
-WARNING   = "#F29900"
-TEXT      = "#202124"
-SUBTLE    = "#5F6368"
-BORDER    = "#DADCE0"
-RED_BG    = "#FCE8E6"
-GREEN_BG  = "#E6F4EA"
+# ─────────────────────────── Theme (mapped) ────────────────────
+BG = GRAY_BG
+WHITE = WHITE
+PRIMARY = NAVY
+DANGER = RED
+SUCCESS = SUCCESS
+WARNING = WARNING
+TEXT = TEXT_DARK
+SUBTLE = TEXT_LIGHT
+BORDER = GRAY_BORDER
+RED_BG = "#FCE8E6"
+GREEN_BG = "#E6F4EA"
 YELLOW_BG = "#FFF8E1"
 
-FONT_TITLE = ("Tahoma", 14, "bold")
-FONT_LABEL = ("Tahoma", 10, "bold")
-FONT_INPUT = ("Tahoma", 10)
-FONT_SMALL = ("Tahoma", 9)
-FONT_STAT  = ("Tahoma", 18, "bold")
+FONT_TITLE = FONT_TITLE
+FONT_LABEL = FONT_HEADING
+FONT_INPUT = FONT_NORMAL
+FONT_SMALL = FONT_SMALL
+FONT_STAT = FONT_HEADING
 
 
 class SparePartsView(ttk.Frame):
-    def __init__(self, parent, session):
+    def __init__(self, parent, session, current_user):
         super().__init__(parent, style="TFrame")
         self.session = session
         self.service = SparePartsService(session)
+        self.current_user = current_user
+        # All roles (admin, manager, technician) can manage spare parts
+        self.can_manage = current_user["role"] in ["admin", "manager", "technician"]
+
         self._setup_ui()
         self._load()
 
@@ -57,27 +66,28 @@ class SparePartsView(ttk.Frame):
         btn_frame = tk.Frame(hdr, bg=PRIMARY)
         btn_frame.pack(side="left", padx=16, pady=10)
 
-        tk.Button(btn_frame, text="➕ افزودن قطعه",
-                  font=FONT_LABEL, bg=WHITE, fg=PRIMARY,
-                  relief="flat", cursor="hand2", padx=12, pady=6,
-                  command=self._add_part).pack(side="left", padx=4)
+        if self.can_manage:
+            tk.Button(btn_frame, text="➕ افزودن قطعه",
+                      font=FONT_LABEL, bg=WHITE, fg=PRIMARY,
+                      relief="flat", cursor="hand2", padx=12, pady=6,
+                      command=self._add_part).pack(side="left", padx=4)
 
+        # Refresh and export are available to all
         tk.Button(btn_frame, text="🔄 بروزرسانی",
-                  font=FONT_INPUT, bg="#800080", fg=WHITE,
+                  font=FONT_INPUT, bg=NAVY_LIGHT, fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._load).pack(side="left", padx=4)
 
         tk.Button(btn_frame, text="📤  Excel خروجی ",
-                  font=FONT_INPUT, bg="#34A853", fg=WHITE,
+                  font=FONT_INPUT, bg=SUCCESS, fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._export).pack(side="left", padx=4)
 
     def _build_stats_bar(self):
         stats_frame = tk.Frame(self, bg=BG)
         stats_frame.pack(fill="x", padx=20, pady=(12, 0))
-        self.stats_cards = {}  # to store label widgets
+        self.stats_cards = {}
 
-        # Define statistics cards
         cards = [
             ("total", "📦 کل قطعات", WHITE, PRIMARY),
             ("low_stock", "⚠️ موجودی کم", YELLOW_BG, WARNING),
@@ -147,18 +157,9 @@ class SparePartsView(ttk.Frame):
         self.tree.pack(side="right", fill="both", expand=True)
         vsb.pack(side="left", fill="y")
 
-        # Right-click menu
+        # Right-click menu – all options for can_manage
         self.tree.bind("<Button-3>", self._context_menu)
-        self.tree.bind("<Double-1>", lambda e: self._edit_part())
-        self.ctx_menu = tk.Menu(self, tearoff=0, font=FONT_INPUT)
-        self.ctx_menu.add_command(label="✏️ ویرایش", command=self._edit_part)
-        self.ctx_menu.add_command(label="📥 ورود به انبار", command=self._stock_in)
-        self.ctx_menu.add_command(label="📤 خروج از انبار", command=self._stock_out)
-        self.ctx_menu.add_separator()
-        self.ctx_menu.add_command(label="🗑️ حذف", command=self._delete_part)
-
-        # Tags for low stock highlighting
-        self.tree.tag_configure("low_stock", background=RED_BG)
+        self.tree.bind("<Double-1>", lambda e: self._edit_part() if self.can_manage else self._view_history())
 
     # ─────────────────────────── Data Loading ───────────────────────────────
     def _load(self):
@@ -209,9 +210,15 @@ class SparePartsView(ttk.Frame):
         run_spare_parts_export(self, parts)
 
     def _add_part(self):
+        if not self.can_manage:
+            messagebox.showwarning("دسترسی", "شما مجاز به افزودن قطعه نیستید.", parent=self)
+            return
         SparePartForm(self, self.session, callback=self._load)
 
     def _edit_part(self):
+        if not self.can_manage:
+            messagebox.showwarning("دسترسی", "شما مجاز به ویرایش قطعه نیستید.", parent=self)
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("انتخاب", "لطفاً یک قطعه انتخاب کنید.")
@@ -221,6 +228,9 @@ class SparePartsView(ttk.Frame):
         SparePartForm(self, self.session, part=part, callback=self._load)
 
     def _delete_part(self):
+        if not self.can_manage:
+            messagebox.showwarning("دسترسی", "شما مجاز به حذف قطعه نیستید.", parent=self)
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("انتخاب", "لطفاً یک قطعه انتخاب کنید.")
@@ -239,6 +249,9 @@ class SparePartsView(ttk.Frame):
             messagebox.showerror("خطا", str(e))
 
     def _stock_in(self):
+        if not self.can_manage:
+            messagebox.showwarning("دسترسی", "شما مجاز به ورود به انبار نیستید.", parent=self)
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("انتخاب", "لطفاً یک قطعه انتخاب کنید.")
@@ -248,6 +261,9 @@ class SparePartsView(ttk.Frame):
         StockTransactionForm(self, self.session, part, "IN", callback=self._load)
 
     def _stock_out(self):
+        if not self.can_manage:
+            messagebox.showwarning("دسترسی", "شما مجاز به خروج از انبار نیستید.", parent=self)
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("انتخاب", "لطفاً یک قطعه انتخاب کنید.")
@@ -267,12 +283,21 @@ class SparePartsView(ttk.Frame):
 
     def _context_menu(self, event):
         row = self.tree.identify_row(event.y)
-        if row:
-            self.tree.selection_set(row)
-            self.ctx_menu.post(event.x_root, event.y_root)
+        if not row:
+            return
+        self.tree.selection_set(row)
+        menu = tk.Menu(self, tearoff=0, font=FONT_INPUT)
+        if self.can_manage:
+            menu.add_command(label="✏️ ویرایش", command=self._edit_part)
+            menu.add_command(label="📥 ورود به انبار", command=self._stock_in)
+            menu.add_command(label="📤 خروج از انبار", command=self._stock_out)
+            menu.add_separator()
+            menu.add_command(label="🗑️ حذف", command=self._delete_part)
+        else:
+            menu.add_command(label="🔍 مشاهده تاریخچه", command=self._view_history)
+        menu.post(event.x_root, event.y_root)
 
-
-# ─────────────────────────── Form Dialogs (Persian) ─────────────────────────
+# ─────────────────────────── Form Dialogs (Persian, theme consistent) ─────
 class SparePartForm(tk.Toplevel):
     def __init__(self, parent, session, part=None, callback=None):
         super().__init__(parent)
@@ -286,7 +311,6 @@ class SparePartForm(tk.Toplevel):
         self.configure(bg=BG)
         self.resizable(False, False)
 
-        # Center
         self.update_idletasks()
         x = (self.winfo_screenwidth() // 2) - (550 // 2)
         y = (self.winfo_screenheight() // 2) - (650 // 2)
@@ -300,11 +324,9 @@ class SparePartForm(tk.Toplevel):
         main = tk.Frame(self, bg=BG)
         main.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # Title
         tk.Label(main, text="🔧 اطلاعات قطعه", font=FONT_TITLE,
                  bg=BG, fg=PRIMARY).pack(pady=(0, 15))
 
-        # Form fields (Persian labels)
         fields = [
             ("شماره قطعه *:", "part_number"),
             ("نام قطعه *:", "name"),
@@ -338,7 +360,6 @@ class SparePartForm(tk.Toplevel):
 
             self.entries[field] = widget
 
-        # Buttons
         btn_frame = tk.Frame(main, bg=BG)
         btn_frame.pack(pady=20)
         tk.Button(btn_frame, text="ذخیره", font=FONT_LABEL,
@@ -370,7 +391,6 @@ class SparePartForm(tk.Toplevel):
             messagebox.showerror("خطا", "شماره قطعه و نام قطعه الزامی هستند.")
             return
 
-        # Convert numeric fields
         try:
             data["min_stock"] = int(data["min_stock"]) if data["min_stock"] else 0
             data["current_stock"] = int(data["current_stock"]) if data["current_stock"] else 0
@@ -420,7 +440,6 @@ class StockTransactionForm(tk.Toplevel):
         main = tk.Frame(self, bg=BG)
         main.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # Info
         info_frame = tk.Frame(main, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
         info_frame.pack(fill="x", pady=(0, 15), ipady=8)
         tk.Label(info_frame, text=f"قطعه: {self.part.name}", font=FONT_LABEL,
@@ -428,10 +447,8 @@ class StockTransactionForm(tk.Toplevel):
         tk.Label(info_frame, text=f"موجودی فعلی: {self.part.current_stock}",
                  font=FONT_INPUT, bg=WHITE, fg=SUBTLE).pack(pady=2)
 
-        # Form
         frm = tk.Frame(main, bg=BG)
         frm.pack(fill="x", pady=10)
-
         tk.Label(frm, text="تعداد *:", font=FONT_LABEL,
                  bg=BG, fg=TEXT, width=15, anchor="e").pack(side="right", padx=(0, 10))
         self.qty_entry = tk.Entry(frm, font=FONT_INPUT, bg=WHITE, fg=TEXT, relief="solid", bd=1)
@@ -480,7 +497,6 @@ class StockTransactionForm(tk.Toplevel):
         }
 
         try:
-            # Pass work_order_id if any
             self.service.add_stock_transaction(data, work_order_id=self.work_order_id)
             messagebox.showinfo("موفق", "عملیات انبار با موفقیت ثبت شد.")
             if self.callback:
@@ -488,6 +504,7 @@ class StockTransactionForm(tk.Toplevel):
             self.destroy()
         except Exception as e:
             messagebox.showerror("خطا", str(e))
+
 
 class PartTransactionsView(tk.Toplevel):
     def __init__(self, parent, session, part):
@@ -509,13 +526,11 @@ class PartTransactionsView(tk.Toplevel):
         self._load()
 
     def _setup_ui(self):
-        # Header
         header = tk.Frame(self, bg=PRIMARY, height=50)
         header.pack(fill="x")
         tk.Label(header, text=f"📋 تاریخچه قطعه: {self.part.name} ({self.part.part_number})",
                  font=FONT_TITLE, bg=PRIMARY, fg=WHITE).pack(pady=10)
 
-        # Table
         frame = tk.Frame(self, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
         frame.pack(fill="both", expand=True, padx=20, pady=20)
 
@@ -541,7 +556,6 @@ class PartTransactionsView(tk.Toplevel):
         self.tree.tag_configure("IN", foreground=SUCCESS)
         self.tree.tag_configure("OUT", foreground=DANGER)
 
-        # Close button
         btn = tk.Button(self, text="بستن", font=FONT_LABEL,
                         bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
                         padx=20, pady=6, command=self.destroy)

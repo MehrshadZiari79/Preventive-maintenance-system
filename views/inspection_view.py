@@ -8,7 +8,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 
-
 from services.inspection_service import InspectionService
 from views.inspection_dialog import (
     TemplateDialog,
@@ -17,26 +16,31 @@ from views.inspection_dialog import (
     InspectionDetailDialog,
 )
 from database.models import Inspection, InspectionTemplate
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
-# ─────────────────────────── Theme ──────────────────────────────────────────
-BG = "#F0F4F8"
-WHITE = "#FFFFFF"
-PRIMARY = "#1A73E8"
-DANGER = "#DC3545"
-SUCCESS = "#28A745"
-WARNING = "#F29900"
-TEXT = "#202124"
-SUBTLE = "#5F6368"
-BORDER = "#DADCE0"
+# ─────────────────────────── Theme (mapped) ─────────────────────
+BG = GRAY_BG
+WHITE = WHITE
+PRIMARY = NAVY
+DANGER = RED
+SUCCESS = SUCCESS
+WARNING = WARNING
+TEXT = TEXT_DARK
+SUBTLE = TEXT_LIGHT
+BORDER = GRAY_BORDER
 RED_BG = "#FCE8E6"
 GREEN_BG = "#E6F4EA"
 YELLOW_BG = "#FFF8E1"
 
-FONT_TITLE = ("Tahoma", 14, "bold")
-FONT_LABEL = ("Tahoma", 10, "bold")
-FONT_INPUT = ("Tahoma", 10)
-FONT_SMALL = ("Tahoma", 9)
-FONT_STAT = ("Tahoma", 18, "bold")
+FONT_TITLE = FONT_TITLE
+FONT_LABEL = FONT_HEADING
+FONT_INPUT = FONT_NORMAL
+FONT_SMALL = FONT_SMALL
+FONT_STAT = FONT_HEADING
 
 STATUS_FA = {
     "in_progress": "در حال انجام",
@@ -80,9 +84,9 @@ class InspectionView(tk.Frame):
         super().__init__(parent, bg=BG)
         self.service = service
         self.current_user = current_user
+        self.is_manager = current_user["role"] in ["admin", "manager"]
         self._tab = "inspections"  # "inspections" | "templates"
 
-        # Data storage
         self._all_inspections: List[Inspection] = []
         self._all_templates: List[InspectionTemplate] = []
 
@@ -119,12 +123,12 @@ class InspectionView(tk.Frame):
                   command=self._start_inspection).pack(side="left", padx=4)
 
         tk.Button(btn_frame, text="🔄 بروزرسانی",
-                  font=FONT_LABEL, bg="#800080", fg=WHITE,
+                  font=FONT_LABEL, bg=NAVY_LIGHT, fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._load).pack(side="left", padx=4)
 
         tk.Button(btn_frame, text="📤  Excel خروجی  ",
-                  font=FONT_INPUT, bg="#34A853", fg=WHITE,
+                  font=FONT_INPUT, bg=SUCCESS, fg=WHITE,
                   relief="flat", cursor="hand2", padx=12, pady=6,
                   command=self._export).pack(side="left", padx=4)
 
@@ -256,21 +260,23 @@ class InspectionView(tk.Frame):
     def _build_templates_tab(self):
         self._templates_frame = tk.Frame(self, bg=BG)
 
-        # Toolbar
         tb = tk.Frame(self._templates_frame, bg=BG)
         tb.pack(fill="x", pady=(0, 6))
-        tk.Button(tb, text="➕ قالب جدید", font=FONT_LABEL,
-                  bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=12, pady=6, command=self._add_template).pack(side="right", padx=4)
-        tk.Button(tb, text="✏️ ویرایش", font=FONT_INPUT,
-                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
-                  padx=12, pady=6, command=self._edit_template).pack(side="right", padx=4)
-        tk.Button(tb, text="🔁 فعال/غیرفعال", font=FONT_INPUT,
-                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
-                  padx=12, pady=6, command=self._toggle_template).pack(side="right", padx=4)
-        tk.Button(tb, text="🗑️ حذف", font=FONT_INPUT,
-                  bg=DANGER, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=12, pady=6, command=self._delete_template).pack(side="right", padx=4)
+
+        # Template management buttons only for managers
+        if self.is_manager:
+            tk.Button(tb, text="➕ قالب جدید", font=FONT_LABEL,
+                      bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=12, pady=6, command=self._add_template).pack(side="right", padx=4)
+            tk.Button(tb, text="✏️ ویرایش", font=FONT_INPUT,
+                      bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
+                      padx=12, pady=6, command=self._edit_template).pack(side="right", padx=4)
+            tk.Button(tb, text="🔁 فعال/غیرفعال", font=FONT_INPUT,
+                      bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
+                      padx=12, pady=6, command=self._toggle_template).pack(side="right", padx=4)
+            tk.Button(tb, text="🗑️ حذف", font=FONT_INPUT,
+                      bg=DANGER, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=12, pady=6, command=self._delete_template).pack(side="right", padx=4)
 
         # Table
         container = tk.Frame(self._templates_frame, bg=WHITE,
@@ -302,19 +308,30 @@ class InspectionView(tk.Frame):
 
         self._tpl_tree.tag_configure("active", background=GREEN_BG)
         self._tpl_tree.tag_configure("inactive", background="#F5F5F5", foreground=SUBTLE)
-        self._tpl_tree.bind("<Double-1>", lambda e: self._edit_template())
+        # Double-click on template: edit only if manager
+        if self.is_manager:
+            self._tpl_tree.bind("<Double-1>", lambda e: self._edit_template())
+        else:
+            self._tpl_tree.bind("<Double-1>", lambda e: self._view_template_only())
+
+    # Additional method for technician to view template details (optional)
+    def _view_template_only(self):
+        tpl_id = self._selected_template_id()
+        if tpl_id:
+            template = self.service.get_template(tpl_id)
+            if template:
+                # Show a simple read-only dialog with template info (optional)
+                messagebox.showinfo("قالب", f"نام: {template.name}\nدوره: {FREQ_FA.get(template.frequency, template.frequency)}\nمدت: {template.estimated_duration_minutes} دقیقه\nتعداد چک‌پوینت: {len(template.checkpoints)}")
 
     # ══════════════════════════ DATA LOADING ════════════════════════════════
 
     def _load(self):
-        """Load all data and refresh UI"""
         self._load_inspections()
         self._load_templates()
         stats = self.service.get_stats()
         self._refresh_stats(stats)
 
     def _load_inspections(self):
-        """Load inspections from database"""
         try:
             self._all_inspections = self.service.get_all_inspections()
             self._apply_filter()
@@ -323,7 +340,6 @@ class InspectionView(tk.Frame):
             self._all_inspections = []
 
     def _load_templates(self):
-        """Load templates from database"""
         try:
             self._all_templates = self.service.get_all_templates()
             self._populate_templates()
@@ -332,7 +348,6 @@ class InspectionView(tk.Frame):
             self._all_templates = []
 
     def _apply_filter(self):
-        """Apply status filter to inspections"""
         status_fa = self._status_filter.get()
         status_map = {
             "در حال انجام": "in_progress",
@@ -348,7 +363,6 @@ class InspectionView(tk.Frame):
         self._populate_inspections(filtered)
 
     def _populate_inspections(self, inspections: List[Inspection]):
-        """Populate inspections treeview with model objects"""
         self._ins_tree.delete(*self._ins_tree.get_children())
 
         for ins in inspections:
@@ -376,7 +390,6 @@ class InspectionView(tk.Frame):
                                   ))
 
     def _populate_templates(self):
-        """Populate templates treeview with model objects"""
         self._tpl_tree.delete(*self._tpl_tree.get_children())
 
         for t in self._all_templates:
@@ -400,7 +413,6 @@ class InspectionView(tk.Frame):
     # ══════════════════════════ ACTIONS — INSPECTIONS ═══════════════════════
 
     def _export(self):
-        """Export inspections to Excel"""
         try:
             from views.export_dialog import run_inspection_export
             selected_ins_id = self._selected_inspection_id() if self._ins_tree.selection() else None
@@ -421,7 +433,6 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در خروجی گرفتن: {str(e)}")
 
     def _selected_inspection_id(self) -> Optional[int]:
-        """Get selected inspection ID from treeview"""
         sel = self._ins_tree.selection()
         if not sel:
             messagebox.showwarning("انتخاب", "لطفاً یک بازرسی انتخاب کنید.")
@@ -433,7 +444,6 @@ class InspectionView(tk.Frame):
             return None
 
     def _start_inspection(self):
-        """Start a new inspection"""
         try:
             dlg = InspectionStartDialog(self, self.service.db, self.service, self.current_user)
             self.wait_window(dlg)
@@ -446,7 +456,6 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در شروع بازرسی: {str(e)}")
 
     def _continue_inspection(self):
-        """Continue an in-progress inspection"""
         ins_id = self._selected_inspection_id()
         if not ins_id:
             return
@@ -468,7 +477,6 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در ادامه بازرسی: {str(e)}")
 
     def _view_inspection(self):
-        """View inspection details"""
         ins_id = self._selected_inspection_id()
         if not ins_id:
             return
@@ -480,7 +488,6 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در نمایش جزئیات: {str(e)}")
 
     def _delete_inspection(self):
-        """Delete an inspection"""
         ins_id = self._selected_inspection_id()
         if not ins_id:
             return
@@ -504,7 +511,6 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در حذف بازرسی: {str(e)}")
 
     def _ins_context_menu(self, event):
-        """Show context menu for inspections"""
         row = self._ins_tree.identify_row(event.y)
         if row:
             self._ins_tree.selection_set(row)
@@ -513,7 +519,6 @@ class InspectionView(tk.Frame):
     # ══════════════════════════ ACTIONS — TEMPLATES ══════════════════════════
 
     def _selected_template_id(self) -> Optional[int]:
-        """Get selected template ID from treeview"""
         sel = self._tpl_tree.selection()
         if not sel:
             messagebox.showwarning("انتخاب", "لطفاً یک قالب انتخاب کنید.")
@@ -525,7 +530,9 @@ class InspectionView(tk.Frame):
             return None
 
     def _add_template(self):
-        """Add a new template"""
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند قالب اضافه کنند.", parent=self)
+            return
         try:
             dlg = TemplateDialog(self, self.service.db, self.service)
             self.wait_window(dlg)
@@ -535,7 +542,9 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در افزودن قالب: {str(e)}")
 
     def _edit_template(self):
-        """Edit an existing template"""
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند قالب را ویرایش کنند.", parent=self)
+            return
         tpl_id = self._selected_template_id()
         if not tpl_id:
             return
@@ -549,7 +558,9 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در ویرایش قالب: {str(e)}")
 
     def _toggle_template(self):
-        """Toggle template active status"""
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند وضعیت قالب را تغییر دهند.", parent=self)
+            return
         tpl_id = self._selected_template_id()
         if not tpl_id:
             return
@@ -575,7 +586,9 @@ class InspectionView(tk.Frame):
             messagebox.showerror("خطا", f"خطا در تغییر وضعیت قالب: {str(e)}")
 
     def _delete_template(self):
-        """Delete a template"""
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند قالب را حذف کنند.", parent=self)
+            return
         tpl_id = self._selected_template_id()
         if not tpl_id:
             return

@@ -5,8 +5,23 @@ from typing import List, Optional
 from database.db import SessionLocal
 from database.work_order import WorkOrder, WorkOrderStatus, WorkOrderType, WorkOrderPriority
 
+from utils.logger import log_action
 
 class WorkOrderRepository:
+
+    def duplicate_exists(self, equipment_id: int, scheduled_date: datetime, exclude_id: int = None) -> bool:
+        """Check if a work order already exists for the same equipment and date."""
+        db = SessionLocal()
+        try:
+            query = db.query(WorkOrder).filter(
+                WorkOrder.equipment_id == equipment_id,
+                WorkOrder.scheduled_date == scheduled_date
+            )
+            if exclude_id:
+                query = query.filter(WorkOrder.id != exclude_id)
+            return query.first() is not None
+        finally:
+            db.close()
 
     def create_work_order(self, title, equipment_id, type_str, priority,
                           technician_id=None, scheduled_date=None,
@@ -16,6 +31,10 @@ class WorkOrderRepository:
                           manual_cost=0.0, cost_description=None):
         db = SessionLocal()
         try:
+            # Prevent duplicate (same equipment + scheduled date)
+            if scheduled_date and self.duplicate_exists(equipment_id, scheduled_date):
+                return False, "یک دستور کار برای این تجهیز در تاریخ مشابه وجود دارد."
+
             wo_type = (WorkOrderType[type_str.upper()]
                        if type_str.upper() in WorkOrderType.__members__
                        else WorkOrderType.CORRECTIVE)
@@ -45,6 +64,8 @@ class WorkOrderRepository:
             db.add(wo)
             db.commit()
             db.refresh(wo)
+            log_action("CREATE", "work_order", wo.id, f"عنوان: {title}, تجهیز: {equipment_id}")
+
             return True, "کار با موفقیت ثبت شد."
         except Exception as e:
             db.rollback()
@@ -63,6 +84,11 @@ class WorkOrderRepository:
             wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
             if not wo:
                 return False, "دستور کار یافت نشد."
+
+            # Check duplicate if scheduled_date changed
+            if scheduled_date and scheduled_date != wo.scheduled_date:
+                if self.duplicate_exists(equipment_id, scheduled_date, exclude_id=work_order_id):
+                    return False, "یک دستور کار دیگر برای این تجهیز و تاریخ وجود دارد."
 
             wo_type = (WorkOrderType[type_str.upper()]
                        if type_str.upper() in WorkOrderType.__members__
@@ -88,6 +114,7 @@ class WorkOrderRepository:
             if cost_description is not None:
                 wo.cost_description = cost_description
             db.commit()
+            log_action("UPDATE", "work_order", work_order_id, f"عنوان: {title}")
             return True, "دستور کار ویرایش شد."
         except Exception as e:
             db.rollback()
@@ -196,8 +223,6 @@ class WorkOrderRepository:
             wo.description = description or wo.description
             if parts_used:
                 wo.parts_used = parts_used
-
-            # Update manual cost fields if provided
             if manual_cost is not None:
                 wo.manual_cost = manual_cost
             if cost_description is not None:
@@ -209,6 +234,7 @@ class WorkOrderRepository:
                 pm_repo.update_after_completion(wo.schedule_id, wo.end_time)
 
             db.commit()
+            log_action("COMPLETE", "work_order", work_order_id, f"man cost: {manual_cost}")
             msg = "کار تکمیل شد."
             if low_stock:
                 msg += f"\n⚠️ هشدار: قطعات {', '.join(low_stock)} به حداقل موجودی رسیده‌اند."
@@ -228,6 +254,7 @@ class WorkOrderRepository:
             wo.status = WorkOrderStatus.APPROVED
             wo.supervisor_id = supervisor_id
             db.commit()
+            log_action("APPROVE", "work_order", work_order_id, "")
             return True, "کار تایید شد."
         except Exception as e:
             db.rollback()
@@ -245,6 +272,7 @@ class WorkOrderRepository:
             wo.supervisor_id = supervisor_id
             wo.supervisor_notes = notes
             db.commit()
+            log_action("APPROVE", "work_order", work_order_id, "")
             return True, "کار رد شد."
         except Exception as e:
             db.rollback()
@@ -260,6 +288,7 @@ class WorkOrderRepository:
                 return False, "کار یافت نشد."
             db.delete(wo)
             db.commit()
+            log_action("DELETE", "work_order", work_order_id, "")
             return True, "کار حذف شد."
         except Exception as e:
             db.rollback()
