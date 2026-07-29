@@ -1,36 +1,38 @@
 # database/spare_parts_repository.py
-from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from database.db import SessionLocal
 from database.models import SparePart, SparePartTransaction
 
 
 class SparePartsRepository:
-    def __init__(self, session=None):
-        self._external_session = session
+    def __init__(self, session_factory):
+        self.Session = session_factory
 
-    def _session(self):
-        if self._external_session:
-            return self._external_session
-        return SessionLocal()
-
-    # ==================== Part CRUD ====================
     def get_all(self) -> List[SparePart]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             return session.query(SparePart).order_by(SparePart.part_number).all()
+        finally:
+            session.close()
 
     def get_by_id(self, part_id: int) -> Optional[SparePart]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             return session.query(SparePart).filter(SparePart.id == part_id).first()
+        finally:
+            session.close()
 
     def get_by_part_number(self, part_number: str) -> Optional[SparePart]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             return session.query(SparePart).filter(SparePart.part_number == part_number).first()
+        finally:
+            session.close()
 
     def create(self, data: Dict[str, Any]) -> SparePart:
-        with self._session() as session:
+        session = self.Session()
+        try:
             part = SparePart(
                 part_number=data['part_number'],
                 name=data['name'],
@@ -49,9 +51,15 @@ class SparePartsRepository:
             session.commit()
             session.refresh(part)
             return part
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
 
     def update(self, part_id: int, data: Dict[str, Any]) -> Optional[SparePart]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             part = session.query(SparePart).filter(SparePart.id == part_id).first()
             if not part:
                 return None
@@ -66,83 +74,143 @@ class SparePartsRepository:
             session.commit()
             session.refresh(part)
             return part
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
 
     def delete(self, part_id: int) -> bool:
-        with self._session() as session:
+        session = self.Session()
+        try:
             part = session.query(SparePart).filter(SparePart.id == part_id).first()
             if not part:
                 return False
             session.delete(part)
             session.commit()
             return True
+        except Exception as e:
+            session.rollback()
+            return False
+        finally:
+            session.close()
 
     def search(self, keyword: str) -> List[SparePart]:
-        pattern = f"%{keyword}%"
-        with self._session() as session:
+        session = self.Session()
+        try:
+            pattern = f"%{keyword}%"
             return session.query(SparePart).filter(
                 (SparePart.part_number.like(pattern)) |
                 (SparePart.name.like(pattern)) |
                 (SparePart.category.like(pattern)) |
                 (SparePart.supplier.like(pattern))
             ).order_by(SparePart.part_number).all()
+        finally:
+            session.close()
 
     def get_low_stock(self) -> List[SparePart]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             return session.query(SparePart).filter(
                 SparePart.current_stock <= SparePart.min_stock
             ).order_by(SparePart.current_stock).all()
+        finally:
+            session.close()
 
     def get_stats(self) -> Dict[str, Any]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             total_parts = session.query(func.count(SparePart.id)).scalar() or 0
             low_stock_count = session.query(SparePart).filter(
                 SparePart.current_stock <= SparePart.min_stock
             ).count()
-            total_inventory_value = session.query(
-                func.sum(SparePart.unit_price * SparePart.current_stock)
-            ).scalar() or 0.0
+            total_value = 0.0
+            parts = session.query(SparePart).all()
+            for part in parts:
+                avg_price = session.query(func.avg(SparePartTransaction.batch_price)).filter(
+                    SparePartTransaction.part_id == part.id,
+                    SparePartTransaction.transaction_type == 'IN'
+                ).scalar()
+                if avg_price is not None:
+                    total_value += part.current_stock * float(avg_price)
             return {
                 'total_parts': total_parts,
                 'low_stock_count': low_stock_count,
-                'total_inventory_value': total_inventory_value
+                'total_inventory_value': total_value
             }
+        finally:
+            session.close()
 
-    # ==================== Transaction Methods ====================
     def add_transaction(self, data: Dict[str, Any]) -> SparePartTransaction:
-        with self._session() as session:
+        session = self.Session()
+        try:
             part = session.query(SparePart).filter(SparePart.id == data['part_id']).first()
             if not part:
                 raise ValueError("Part not found")
             qty = int(data['quantity'])
             trans_type = data['transaction_type']
+            batch_price = data.get('batch_price', None)
+            reference = data.get('reference', '')
+            notes = data.get('notes', '')
+
             if trans_type == 'IN':
+                # Use provided batch_price or current unit_price
+                price = float(batch_price) if batch_price is not None else part.unit_price
                 part.current_stock += qty
+                # Update part's current unit_price to the latest purchase price (optional)
+                if batch_price is not None:
+                    part.unit_price = price
             elif trans_type == 'OUT':
                 if part.current_stock < qty:
                     raise ValueError(f"Insufficient stock. Available: {part.current_stock}")
                 part.current_stock -= qty
+                price = None  # OUT transactions do not have a batch price
             else:
                 raise ValueError("Invalid transaction type")
+
             transaction = SparePartTransaction(
                 part_id=part.id,
                 transaction_type=trans_type,
                 quantity=qty,
-                reference=data.get('reference', ''),
-                notes=data.get('notes', '')
+                batch_price=price if trans_type == 'IN' else None,
+                reference=reference,
+                notes=notes
             )
             session.add(transaction)
             session.commit()
             session.refresh(transaction)
             return transaction
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
 
     def get_transactions_for_part(self, part_id: int) -> List[SparePartTransaction]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             return session.query(SparePartTransaction).filter(
                 SparePartTransaction.part_id == part_id
             ).order_by(SparePartTransaction.created_at.desc()).all()
+        finally:
+            session.close()
 
     def get_all_transactions(self, limit: int = 100) -> List[SparePartTransaction]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             return session.query(SparePartTransaction).order_by(
                 SparePartTransaction.created_at.desc()
             ).limit(limit).all()
+        finally:
+            session.close()
+
+    def get_price_history(self, part_id: int) -> List[dict]:
+        session = self.Session()
+        try:
+            trans = session.query(SparePartTransaction).filter(
+                SparePartTransaction.part_id == part_id,
+                SparePartTransaction.transaction_type == 'IN'
+            ).order_by(SparePartTransaction.created_at.desc()).all()
+            return [{'date': t.created_at, 'price': t.batch_price, 'quantity': t.quantity, 'reference': t.reference} for t in trans]
+        finally:
+            session.close()

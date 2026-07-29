@@ -1,15 +1,19 @@
 # database/models.py
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index, Numeric
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Index, Numeric, Float, Table
+from sqlalchemy import Unicode, UnicodeText
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 from enum import Enum
-from database.db import Base
+
+Base = declarative_base()
 
 
 class UserRole(str, Enum):
     ADMIN = "admin"
     MANAGER = "manager"
     TECHNICIAN = "technician"
+    PRODUCTION_EXPERT = "production_expert"   # <-- new role
 
 
 class ProductionLog(Base):
@@ -87,15 +91,29 @@ class InspectionResult(str, Enum):
     NA = "na"
 
 
+# ---------- Association table for WorkOrder <-> User (multiple technicians) ----------
+work_order_technicians = Table(
+    "work_order_technicians",
+    Base.metadata,
+    Column("work_order_id", Integer, ForeignKey("work_orders.id"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+)
+
+
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, nullable=False, index=True)
-    password_hash = Column(String(256), nullable=False)
-    full_name = Column(String(100), nullable=False)
-    role = Column(String(20), default=UserRole.TECHNICIAN.value, nullable=False, index=True)
+    username = Column(Unicode(50), unique=True, nullable=False, index=True)
+    password_hash = Column(Unicode(256), nullable=False)
+    full_name = Column(Unicode(100), nullable=False)
+    role = Column(Unicode(20), default=UserRole.TECHNICIAN.value, nullable=False, index=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
+
+    # --- New fields ---
+    personnel_code = Column(Unicode(50), nullable=True)   # شماره پرسنلی
+    service_unit = Column(Unicode(100), nullable=True)    # واحد خدمت
+
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
 
@@ -110,18 +128,26 @@ class Equipment(Base):
     __tablename__ = "equipment"
 
     id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(100), nullable=False)
-    category = Column(String(50), nullable=False, index=True)
-    manufacturer = Column(String(100), nullable=True)
-    model = Column(String(100), nullable=True)
-    serial_number = Column(String(100), nullable=True)
-    location = Column(String(100), nullable=False, index=True)
+    code = Column(Unicode(50), unique=True, nullable=False, index=True)
+    name = Column(Unicode(100), nullable=False)
+    category = Column(Unicode(50), nullable=False, index=True)
+    manufacturer = Column(Unicode(100), nullable=True)
+    model = Column(Unicode(100), nullable=True)
+    serial_number = Column(Unicode(100), nullable=True)
+    location = Column(Unicode(100), nullable=False, index=True)
     installation_date = Column(DateTime, nullable=True)
-    status = Column(String(20), default=EquipmentStatus.OPERATIONAL.value, nullable=False, index=True)
-    criticality_level = Column(String(20), default=EquipmentCriticality.MEDIUM.value, nullable=False, index=True)
-    specifications = Column(Text, nullable=True)
-    notes = Column(Text, nullable=True)
+    status = Column(Unicode(20), default=EquipmentStatus.OPERATIONAL.value, nullable=False, index=True)
+    criticality_level = Column(Unicode(20), default=EquipmentCriticality.MEDIUM.value, nullable=False, index=True)
+    specifications = Column(UnicodeText, nullable=True)
+    notes = Column(UnicodeText, nullable=True)
+
+    length = Column(Float, nullable=True)
+    width = Column(Float, nullable=True)
+    diameter = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
+    volume = Column(Float, nullable=True)
+    weight = Column(Float, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -137,22 +163,20 @@ class PMSchedule(Base):
     __tablename__ = "pm_schedules"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(150), nullable=False)
+    title = Column(Unicode(150), nullable=False)
     equipment_id = Column(Integer, ForeignKey("equipment.id"), nullable=False, index=True)
     technician_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-    frequency = Column(String(20), nullable=False, default=PMFrequency.MONTHLY.value)
+    frequency = Column(Unicode(20), nullable=False, default=PMFrequency.MONTHLY.value)
     interval_days = Column(Integer, nullable=False, default=30)
     last_done = Column(DateTime, nullable=True)
     next_due = Column(DateTime, nullable=True, index=True)
-    checklist = Column(Text, nullable=True)
+    checklist = Column(UnicodeText, nullable=True)
     estimated_duration = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
-    notes = Column(Text, nullable=True)
+    notes = Column(UnicodeText, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # NEW: required spare parts for this PM schedule (JSON string)
-    parts_required = Column(Text, nullable=True)
+    parts_required = Column(UnicodeText, nullable=True)
 
     equipment = relationship("Equipment", back_populates="pm_schedules")
     technician = relationship("User", back_populates="pm_schedules", foreign_keys=[technician_id])
@@ -169,10 +193,10 @@ class InspectionTemplate(Base):
     __tablename__ = "inspection_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(200), nullable=False)
-    description = Column(Text, nullable=True)
+    name = Column(Unicode(200), nullable=False)
+    description = Column(UnicodeText, nullable=True)
     equipment_id = Column(Integer, ForeignKey("equipment.id"), nullable=True, index=True)
-    frequency = Column(String(50), nullable=False, default=InspectionFrequency.MONTHLY.value, index=True)
+    frequency = Column(Unicode(50), nullable=False, default=InspectionFrequency.MONTHLY.value, index=True)
     estimated_duration_minutes = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -195,9 +219,9 @@ class InspectionCheckpoint(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     template_id = Column(Integer, ForeignKey("inspection_templates.id"), nullable=False, index=True)
-    title = Column(String(200), nullable=False)
-    description = Column(Text, nullable=True)
-    checkpoint_type = Column(String(50), nullable=False, default=CheckpointType.VISUAL.value)
+    title = Column(Unicode(200), nullable=False)
+    description = Column(UnicodeText, nullable=True)
+    checkpoint_type = Column(Unicode(50), nullable=False, default=CheckpointType.VISUAL.value)
     order_number = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -221,9 +245,9 @@ class Inspection(Base):
     inspector_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     started_at = Column(DateTime, default=datetime.utcnow, index=True)
     completed_at = Column(DateTime, nullable=True)
-    status = Column(String(50), default=InspectionStatus.IN_PROGRESS.value, nullable=False, index=True)
-    overall_result = Column(String(50), nullable=True)
-    notes = Column(Text, nullable=True)
+    status = Column(Unicode(50), default=InspectionStatus.IN_PROGRESS.value, nullable=False, index=True)
+    overall_result = Column(Unicode(50), nullable=True)
+    notes = Column(UnicodeText, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     template = relationship("InspectionTemplate", back_populates="inspections")
@@ -246,8 +270,8 @@ class InspectionResult(Base):
     id = Column(Integer, primary_key=True, index=True)
     inspection_id = Column(Integer, ForeignKey("inspections.id"), nullable=False, index=True)
     checkpoint_id = Column(Integer, ForeignKey("inspection_checkpoints.id"), nullable=False, index=True)
-    result = Column(String(50), nullable=False)
-    comment = Column(Text, nullable=True)
+    result = Column(Unicode(50), nullable=False)
+    comment = Column(UnicodeText, nullable=True)
     recorded_at = Column(DateTime, default=datetime.utcnow)
 
     inspection = relationship("Inspection", back_populates="results")
@@ -265,51 +289,69 @@ class SparePart(Base):
     __tablename__ = "spare_parts"
 
     id = Column(Integer, primary_key=True, index=True)
-    part_number = Column(String(100), unique=True, nullable=False, index=True)
-    name = Column(String(200), nullable=False)
-    description = Column(Text, nullable=True)
-    category = Column(String(100), nullable=True, index=True)
-    unit = Column(String(20), nullable=True)
+    part_number = Column(Unicode(100), unique=True, nullable=False, index=True)
+    name = Column(Unicode(200), nullable=False)
+    description = Column(UnicodeText, nullable=True)
+    category = Column(Unicode(100), nullable=True, index=True)
+    unit = Column(Unicode(20), nullable=True)
     min_stock = Column(Integer, default=0, nullable=False)
     current_stock = Column(Integer, default=0, nullable=False)
     unit_price = Column(Numeric(10, 2), default=0.0, nullable=False)
-    location = Column(String(100), nullable=True)
-    supplier = Column(String(200), nullable=True)
-    equipment_codes = Column(Text, nullable=True)
-    notes = Column(Text, nullable=True)
+    location = Column(Unicode(100), nullable=True)
+    supplier = Column(Unicode(200), nullable=True)
+    equipment_codes = Column(UnicodeText, nullable=True)
+    notes = Column(UnicodeText, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     transactions = relationship("SparePartTransaction", back_populates="part", cascade="all, delete-orphan")
+
+
 class Settings(Base):
     __tablename__ = "settings"
     id = Column(Integer, primary_key=True)
-    key = Column(String(100), unique=True, nullable=False)
-    value = Column(Text, nullable=True)
+    key = Column(Unicode(100), unique=True, nullable=False)
+    value = Column(UnicodeText, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    username = Column(String(50), nullable=False)
-    action = Column(String(50), nullable=False)  # CREATE, UPDATE, DELETE, LOGIN, LOGOUT, COMPLETE, APPROVE, REJECT
-    entity_type = Column(String(50), nullable=False)  # work_order, equipment, pm_schedule, user, spare_part, inspection
+    username = Column(Unicode(50), nullable=False)
+    action = Column(Unicode(50), nullable=False)
+    entity_type = Column(Unicode(50), nullable=False)
     entity_id = Column(Integer, nullable=True)
-    details = Column(Text, nullable=True)  # JSON or description
-    ip_address = Column(String(45), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    details = Column(UnicodeText, nullable=True)
+    ip_address = Column(Unicode(45), nullable=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
 
     user = relationship("User", backref="activity_logs")
+
+
 class SparePartTransaction(Base):
     __tablename__ = "spare_part_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
     part_id = Column(Integer, ForeignKey("spare_parts.id"), nullable=False, index=True)
-    transaction_type = Column(String(10), nullable=False)  # 'IN' or 'OUT'
+    transaction_type = Column(Unicode(10), nullable=False)
     quantity = Column(Integer, nullable=False)
-    reference = Column(String(100), nullable=True)
-    notes = Column(Text, nullable=True)
+    reference = Column(Unicode(100), nullable=True)
+    notes = Column(UnicodeText, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    batch_price = Column(Numeric(10, 2), nullable=True, default=0.0)
 
     part = relationship("SparePart", back_populates="transactions")
+
+class RolePermissions(Base):
+    __tablename__ = "role_permissions"
+    __table_args__ = {'schema': 'dbo'}          # <-- force dbo
+
+    id = Column(Integer, primary_key=True, index=True)
+    role_name = Column(Unicode(50), unique=True, nullable=False, index=True)
+    permissions_json = Column(UnicodeText, nullable=True)
+
+    def __repr__(self):
+        return f"<RolePermissions {self.role_name}>"

@@ -1,42 +1,37 @@
 # services/pm_service.py
-"""
-PM Service - Business logic for Preventive Maintenance
-"""
 from datetime import datetime
 from database.pm_repository import PMRepository
 from database.work_order_repository import WorkOrderRepository
 
 
 class PMService:
-    def __init__(self):
-        self.pm_repo = PMRepository()
-        self.wo_repo = WorkOrderRepository()
+    def __init__(self, session_factory):
+        self.pm_repo = PMRepository(session_factory)
+        self.wo_repo = WorkOrderRepository(session_factory)
 
-    def generate_due_work_orders(self) -> tuple[int, int, list[str]]:
+    def generate_due_work_orders(self, days_ahead: int = 1) -> tuple[int, int, list[str]]:
         """
-        Generate work orders for all due PM schedules.
-        Returns: (created_count, skipped_count, error_messages)
+        Create work orders for all active PMs with next_due <= now + days_ahead.
+        Returns (created, skipped, errors).
         """
         created = 0
         skipped = 0
         errors = []
 
-        # Get all active schedules where next_due <= now
-        due_schedules = self.pm_repo.get_due_schedules(datetime.now())
+        due_schedules = self.pm_repo.get_due_schedules_ahead(datetime.now(), days_ahead)
 
         for pm in due_schedules:
-            # Check if a work order already exists for this PM and due date
             existing = self.wo_repo.find_by_schedule_and_date(pm.id, pm.next_due)
             if existing:
                 skipped += 1
                 continue
 
-            # Create work order using the new dedicated method
             success, msg = self.wo_repo.create_from_pm(pm, pm.next_due)
             if success:
                 created += 1
-                # Update PM schedule: set last_done = due_date, calculate next_due
-                self.pm_repo.update_next_due_date(pm.id, pm.next_due)
+                # Do NOT advance next_due here!
+                # The PM's next due date will be updated only when
+                # the manager approves the completed work order.
             else:
                 errors.append(f"PM #{pm.id} ({pm.title}): {msg}")
 

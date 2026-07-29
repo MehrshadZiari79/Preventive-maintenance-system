@@ -8,27 +8,27 @@ from database.models import Equipment
 from services.inspection_service import InspectionService
 from schemas.inspection import (
     InspectionTemplateCreate,
+    InspectionTemplateUpdate,
     InspectionCheckpointCreate,
     InspectionCreate,
     InspectionResultCreate,
 )
 
-# ─────────────────────────── Theme (matches existing app) ───────────────────
-BG      = "#F0F4F8"
-WHITE   = "#FFFFFF"
-PRIMARY = "#1A73E8"
-DANGER  = "#DC3545"
-SUCCESS = "#28A745"
-TEXT    = "#202124"
-SUBTLE  = "#5F6368"
-BORDER  = "#DADCE0"
-RED_BG  = "#FCE8E6"
-GREEN_BG = "#E6F4EA"
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
-FONT_TITLE  = ("Tahoma", 13, "bold")
-FONT_LABEL  = ("Tahoma", 10, "bold")
-FONT_INPUT  = ("Tahoma", 10)
-FONT_SMALL  = ("Tahoma", 9)
+BG      = GRAY_BG
+CARD_BG = WHITE
+PRIMARY = NAVY
+DANGER  = RED
+SUCCESS = SUCCESS
+WARNING = WARNING
+TEXT    = TEXT_DARK
+SUBTLE  = TEXT_LIGHT
+BORDER  = GRAY_BORDER
 
 FREQ_OPTIONS = {
     "روزانه":    "daily",
@@ -55,13 +55,7 @@ RESULT_FA = {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  TemplateDialog — Create / Edit inspection template
-# ══════════════════════════════════════════════════════════════════════════════
-
 class TemplateDialog(tk.Toplevel):
-    """Dialog for creating/editing inspection templates."""
-
     def __init__(self, parent, db_session, service: InspectionService,
                  template_id: Optional[int] = None):
         super().__init__(parent)
@@ -74,7 +68,7 @@ class TemplateDialog(tk.Toplevel):
         self.title("ویرایش قالب بازرسی" if template_id else "قالب بازرسی جدید")
         self.configure(bg=BG)
         self.resizable(False, False)
-        self._center(820, 640)
+        self._center(820, 800)
         self.grab_set()
 
         self._build_ui()
@@ -87,8 +81,6 @@ class TemplateDialog(tk.Toplevel):
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-    # ── UI ──────────────────────────────────────────────────────────────────
-
     def _build_ui(self):
         # Header
         hdr = tk.Frame(self, bg=PRIMARY, height=56)
@@ -99,58 +91,58 @@ class TemplateDialog(tk.Toplevel):
                  bg=PRIMARY, fg=WHITE).pack(side="right", padx=20, pady=14)
 
         # Info section
-        info_frame = tk.LabelFrame(self, text="اطلاعات قالب", font=FONT_LABEL,
+        info_frame = tk.LabelFrame(self, text="اطلاعات قالب", font=FONT_HEADING,
                                    bg=BG, fg=TEXT, padx=15, pady=10)
         info_frame.pack(fill="x", padx=20, pady=(15, 5))
 
         # Name
-        tk.Label(info_frame, text="نام قالب *:", font=FONT_LABEL,
+        tk.Label(info_frame, text="نام قالب *:", font=FONT_NORMAL,
                  bg=BG, fg=TEXT).grid(row=0, column=2, sticky="e", pady=6, padx=5)
         self.name_var = tk.StringVar()
-        tk.Entry(info_frame, textvariable=self.name_var, font=FONT_INPUT,
+        tk.Entry(info_frame, textvariable=self.name_var, font=FONT_NORMAL,
                  width=35, relief="solid", bd=1).grid(row=0, column=1, sticky="ew", pady=6, padx=5)
 
         # Equipment
-        tk.Label(info_frame, text="تجهیز:", font=FONT_LABEL,
+        tk.Label(info_frame, text="تجهیز:", font=FONT_NORMAL,
                  bg=BG, fg=TEXT).grid(row=1, column=2, sticky="e", pady=6, padx=5)
         equipment_list = self.db.query(Equipment).filter(Equipment.status != "inactive").all()
         self._equipment_list = equipment_list
         eq_names = ["عمومی"] + [eq.name for eq in equipment_list]
         self.eq_var = tk.StringVar(value="عمومی")
         ttk.Combobox(info_frame, textvariable=self.eq_var, values=eq_names,
-                     state="readonly", width=33, font=FONT_INPUT).grid(
+                     state="readonly", width=33, font=FONT_NORMAL).grid(
             row=1, column=1, sticky="ew", pady=6, padx=5)
 
         # Frequency
-        tk.Label(info_frame, text="دوره تناوب *:", font=FONT_LABEL,
+        tk.Label(info_frame, text="دوره تناوب *:", font=FONT_NORMAL,
                  bg=BG, fg=TEXT).grid(row=2, column=2, sticky="e", pady=6, padx=5)
         self.freq_var = tk.StringVar(value="ماهانه")
         ttk.Combobox(info_frame, textvariable=self.freq_var,
                      values=list(FREQ_OPTIONS.keys()),
-                     state="readonly", width=33, font=FONT_INPUT).grid(
+                     state="readonly", width=33, font=FONT_NORMAL).grid(
             row=2, column=1, sticky="ew", pady=6, padx=5)
 
         # Duration
-        tk.Label(info_frame, text="مدت تخمینی (دقیقه):", font=FONT_LABEL,
+        tk.Label(info_frame, text="مدت تخمینی (دقیقه):", font=FONT_NORMAL,
                  bg=BG, fg=TEXT).grid(row=3, column=2, sticky="e", pady=6, padx=5)
         self.duration_var = tk.StringVar(value="30")
-        tk.Entry(info_frame, textvariable=self.duration_var, font=FONT_INPUT,
+        tk.Entry(info_frame, textvariable=self.duration_var, font=FONT_NORMAL,
                  width=10, relief="solid", bd=1).grid(row=3, column=1, sticky="w", pady=6, padx=5)
 
         # Active checkbox
         self.active_var = tk.BooleanVar(value=True)
         tk.Checkbutton(info_frame, text="فعال", variable=self.active_var,
-                       bg=BG, font=FONT_INPUT).grid(row=4, column=1, sticky="w", pady=6, padx=5)
+                       bg=BG, font=FONT_NORMAL).grid(row=4, column=1, sticky="w", pady=6, padx=5)
 
         # Description
-        tk.Label(info_frame, text="توضیحات:", font=FONT_LABEL,
+        tk.Label(info_frame, text="توضیحات:", font=FONT_NORMAL,
                  bg=BG, fg=TEXT).grid(row=5, column=2, sticky="ne", pady=6, padx=5)
-        self.desc_text = tk.Text(info_frame, font=FONT_INPUT, width=35, height=3,
+        self.desc_text = tk.Text(info_frame, font=FONT_NORMAL, width=35, height=3,
                                  relief="solid", bd=1)
         self.desc_text.grid(row=5, column=1, sticky="ew", pady=6, padx=5)
 
         # Checkpoints section
-        cp_frame = tk.LabelFrame(self, text="چک‌پوینت‌ها", font=FONT_LABEL,
+        cp_frame = tk.LabelFrame(self, text="چک‌پوینت‌ها", font=FONT_HEADING,
                                  bg=BG, fg=TEXT, padx=10, pady=8)
         cp_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
@@ -185,14 +177,12 @@ class TemplateDialog(tk.Toplevel):
         # Buttons
         btn_frame = tk.Frame(self, bg=BG)
         btn_frame.pack(fill="x", padx=20, pady=(5, 15))
-        tk.Button(btn_frame, text="ذخیره", font=FONT_LABEL,
+        tk.Button(btn_frame, text="ذخیره", font=FONT_NORMAL,
                   bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
                   padx=20, pady=8, command=self._save).pack(side="right", padx=(5, 0))
-        tk.Button(btn_frame, text="انصراف", font=FONT_INPUT,
+        tk.Button(btn_frame, text="انصراف", font=FONT_NORMAL,
                   bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
                   padx=20, pady=8, command=self.destroy).pack(side="right")
-
-    # ── Data ────────────────────────────────────────────────────────────────
 
     def _load_template(self):
         template = self.service.get_template(self.template_id)
@@ -202,16 +192,12 @@ class TemplateDialog(tk.Toplevel):
             return
 
         self.name_var.set(template.name)
-
         if template.equipment:
             self.eq_var.set(template.equipment.name)
-
         self.freq_var.set(FREQ_FA.get(template.frequency, "ماهانه"))
         self.duration_var.set(str(template.estimated_duration_minutes or 30))
-
         if template.description:
             self.desc_text.insert("1.0", template.description)
-
         self.active_var.set(template.is_active)
 
         self.checkpoints = [
@@ -287,7 +273,6 @@ class TemplateDialog(tk.Toplevel):
             messagebox.showerror("خطا", "مدت تخمینی باید عدد باشد.", parent=self)
             return
 
-        # Resolve equipment id
         eq_name = self.eq_var.get()
         equipment_id = None
         if eq_name != "عمومی":
@@ -298,46 +283,64 @@ class TemplateDialog(tk.Toplevel):
         description = self.desc_text.get("1.0", "end").strip() or None
         frequency   = FREQ_OPTIONS.get(self.freq_var.get(), "monthly")
 
-        checkpoint_schemas = [
-            InspectionCheckpointCreate(
-                title=cp["title"],
-                description=cp["description"] or None,
-                checkpoint_type=cp["type"],
-                order_number=cp["order"],
-            )
-            for cp in self.checkpoints
-        ]
-
-        template_data = InspectionTemplateCreate(
-            name=name,
-            description=description,
-            equipment_id=equipment_id,
-            frequency=frequency,
-            estimated_duration_minutes=duration,
-            is_active=self.active_var.get(),
-            checkpoints=checkpoint_schemas,
-        )
-
         try:
             if self.template_id:
-                self.service.update_template(self.template_id, template_data)
+                # -------------------- Update existing template --------------------
+                # 1) Update basic info (NO checkpoints)
+                update_dto = InspectionTemplateUpdate(
+                    name=name,
+                    description=description,
+                    equipment_id=equipment_id,
+                    frequency=frequency,
+                    estimated_duration_minutes=duration,
+                    is_active=self.active_var.get(),
+                )
+                self.service.update_template(self.template_id, update_dto)
+
+                # 2) Replace all checkpoints
+                checkpoint_dicts = [
+                    {
+                        "title":       cp["title"],
+                        "description": cp.get("description", ""),
+                        "type":        cp["type"],
+                    }
+                    for cp in self.checkpoints
+                ]
+                self.service.replace_checkpoints(self.template_id, checkpoint_dicts)
+
                 messagebox.showinfo("موفق", "قالب با موفقیت بروزرسانی شد.", parent=self)
+                # ----------------------------------------------------------------
             else:
+                # -------------------- Create new template --------------------
+                checkpoint_schemas = [
+                    InspectionCheckpointCreate(
+                        title=cp["title"],
+                        description=cp["description"] or None,
+                        checkpoint_type=cp["type"],
+                        order_number=cp["order"],
+                    )
+                    for cp in self.checkpoints
+                ]
+                template_data = InspectionTemplateCreate(
+                    name=name,
+                    description=description,
+                    equipment_id=equipment_id,
+                    frequency=frequency,
+                    estimated_duration_minutes=duration,
+                    is_active=self.active_var.get(),
+                    checkpoints=checkpoint_schemas,
+                )
                 self.service.create_template(template_data)
                 messagebox.showinfo("موفق", "قالب با موفقیت ایجاد شد.", parent=self)
+                # ------------------------------------------------------------
+
             self.result = True
             self.destroy()
         except Exception as e:
             messagebox.showerror("خطا", f"خطا در ذخیره قالب:\n{e}", parent=self)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  CheckpointDialog — Add / Edit a single checkpoint
-# ══════════════════════════════════════════════════════════════════════════════
-
 class CheckpointDialog(tk.Toplevel):
-    """Dialog for adding/editing a single checkpoint."""
-
     def __init__(self, parent, checkpoint_data: Optional[dict] = None):
         super().__init__(parent)
         self.checkpoint_data = checkpoint_data
@@ -370,32 +373,32 @@ class CheckpointDialog(tk.Toplevel):
         body = tk.Frame(self, bg=BG, padx=20, pady=15)
         body.pack(fill="both", expand=True)
 
-        tk.Label(body, text="عنوان *:", font=FONT_LABEL, bg=BG, fg=TEXT).grid(
+        tk.Label(body, text="عنوان *:", font=FONT_NORMAL, bg=BG, fg=TEXT).grid(
             row=0, column=1, sticky="e", pady=8, padx=5)
         self.title_var = tk.StringVar()
-        tk.Entry(body, textvariable=self.title_var, font=FONT_INPUT,
+        tk.Entry(body, textvariable=self.title_var, font=FONT_NORMAL,
                  width=35, relief="solid", bd=1).grid(row=0, column=0, sticky="ew", pady=8, padx=5)
 
-        tk.Label(body, text="نوع *:", font=FONT_LABEL, bg=BG, fg=TEXT).grid(
+        tk.Label(body, text="نوع *:", font=FONT_NORMAL, bg=BG, fg=TEXT).grid(
             row=1, column=1, sticky="e", pady=8, padx=5)
         self.type_var = tk.StringVar(value="بصری")
         ttk.Combobox(body, textvariable=self.type_var,
                      values=list(TYPE_OPTIONS.keys()),
-                     state="readonly", width=33, font=FONT_INPUT).grid(
+                     state="readonly", width=33, font=FONT_NORMAL).grid(
             row=1, column=0, sticky="ew", pady=8, padx=5)
 
-        tk.Label(body, text="توضیحات:", font=FONT_LABEL, bg=BG, fg=TEXT).grid(
+        tk.Label(body, text="توضیحات:", font=FONT_NORMAL, bg=BG, fg=TEXT).grid(
             row=2, column=1, sticky="ne", pady=8, padx=5)
-        self.desc_text = tk.Text(body, font=FONT_INPUT, width=35, height=6,
+        self.desc_text = tk.Text(body, font=FONT_NORMAL, width=35, height=6,
                                  relief="solid", bd=1)
         self.desc_text.grid(row=2, column=0, sticky="ew", pady=8, padx=5)
 
         btn_frame = tk.Frame(self, bg=BG)
         btn_frame.pack(fill="x", padx=20, pady=(0, 15))
-        tk.Button(btn_frame, text="ذخیره", font=FONT_LABEL,
+        tk.Button(btn_frame, text="ذخیره", font=FONT_NORMAL,
                   bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
                   padx=20, pady=7, command=self._save).pack(side="right", padx=(5, 0))
-        tk.Button(btn_frame, text="انصراف", font=FONT_INPUT,
+        tk.Button(btn_frame, text="انصراف", font=FONT_NORMAL,
                   bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
                   padx=20, pady=7, command=self.destroy).pack(side="right")
 
@@ -420,13 +423,7 @@ class CheckpointDialog(tk.Toplevel):
         self.destroy()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  InspectionStartDialog — Start a new inspection
-# ══════════════════════════════════════════════════════════════════════════════
-
 class InspectionStartDialog(tk.Toplevel):
-    """Dialog for starting a new inspection session."""
-
     def __init__(self, parent, db_session, service: InspectionService, current_user):
         super().__init__(parent)
         self.db           = db_session
@@ -459,8 +456,7 @@ class InspectionStartDialog(tk.Toplevel):
         body = tk.Frame(self, bg=BG, padx=20, pady=15)
         body.pack(fill="both", expand=True)
 
-        # Template
-        tk.Label(body, text="قالب بازرسی *:", font=FONT_LABEL, bg=BG, fg=TEXT).grid(
+        tk.Label(body, text="قالب بازرسی *:", font=FONT_NORMAL, bg=BG, fg=TEXT).grid(
             row=0, column=1, sticky="e", pady=8, padx=5)
         template_names = [
             f"{t.name} — {t.equipment.name if t.equipment else 'عمومی'}"
@@ -469,35 +465,33 @@ class InspectionStartDialog(tk.Toplevel):
         self.template_var = tk.StringVar()
         self.template_combo = ttk.Combobox(body, textvariable=self.template_var,
                                            values=template_names,
-                                           state="readonly", width=38, font=FONT_INPUT)
+                                           state="readonly", width=38, font=FONT_NORMAL)
         if template_names:
             self.template_combo.current(0)
         self.template_combo.grid(row=0, column=0, sticky="ew", pady=8, padx=5)
 
-        # Equipment override
-        tk.Label(body, text="تجهیز (اختیاری):", font=FONT_LABEL, bg=BG, fg=TEXT).grid(
+        tk.Label(body, text="تجهیز (اختیاری):", font=FONT_NORMAL, bg=BG, fg=TEXT).grid(
             row=1, column=1, sticky="e", pady=8, padx=5)
         equipment_list = self.db.query(Equipment).filter(Equipment.status != "inactive").all()
         self._equipment_list = equipment_list
         eq_names = ["طبق قالب"] + [eq.name for eq in equipment_list]
         self.eq_var = tk.StringVar(value="طبق قالب")
         ttk.Combobox(body, textvariable=self.eq_var, values=eq_names,
-                     state="readonly", width=38, font=FONT_INPUT).grid(
+                     state="readonly", width=38, font=FONT_NORMAL).grid(
             row=1, column=0, sticky="ew", pady=8, padx=5)
 
-        # Notes
-        tk.Label(body, text="یادداشت:", font=FONT_LABEL, bg=BG, fg=TEXT).grid(
+        tk.Label(body, text="یادداشت:", font=FONT_NORMAL, bg=BG, fg=TEXT).grid(
             row=2, column=1, sticky="ne", pady=8, padx=5)
-        self.notes_text = tk.Text(body, font=FONT_INPUT, width=38, height=4,
+        self.notes_text = tk.Text(body, font=FONT_NORMAL, width=38, height=4,
                                   relief="solid", bd=1)
         self.notes_text.grid(row=2, column=0, sticky="ew", pady=8, padx=5)
 
         btn_frame = tk.Frame(self, bg=BG)
         btn_frame.pack(fill="x", padx=20, pady=(0, 15))
-        tk.Button(btn_frame, text="شروع بازرسی", font=FONT_LABEL,
+        tk.Button(btn_frame, text="شروع بازرسی", font=FONT_NORMAL,
                   bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
                   padx=20, pady=8, command=self._start).pack(side="right", padx=(5, 0))
-        tk.Button(btn_frame, text="انصراف", font=FONT_INPUT,
+        tk.Button(btn_frame, text="انصراف", font=FONT_NORMAL,
                   bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
                   padx=20, pady=8, command=self.destroy).pack(side="right")
 
@@ -540,13 +534,7 @@ class InspectionStartDialog(tk.Toplevel):
             messagebox.showerror("خطا", f"خطا در شروع بازرسی:\n{e}", parent=self)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  InspectionExecuteDialog — Carry out a running inspection
-# ══════════════════════════════════════════════════════════════════════════════
-
 class InspectionExecuteDialog(tk.Toplevel):
-    """Dialog for executing (filling out) an in-progress inspection."""
-
     def __init__(self, parent, db_session, service: InspectionService, inspection_id: int):
         super().__init__(parent)
         self.db            = db_session
@@ -563,8 +551,8 @@ class InspectionExecuteDialog(tk.Toplevel):
 
         self.title(f"انجام بازرسی — شماره {inspection_id}")
         self.configure(bg=BG)
-        self.geometry("920x700")
-        self._center(920, 700)
+        self.geometry("700x600")
+        self._center(700, 600)
         self.grab_set()
 
         self._build_ui()
@@ -577,7 +565,6 @@ class InspectionExecuteDialog(tk.Toplevel):
         self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build_ui(self):
-        # Header
         hdr = tk.Frame(self, bg=PRIMARY, height=80)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
@@ -589,7 +576,6 @@ class InspectionExecuteDialog(tk.Toplevel):
         tk.Label(hdr, text=f"تجهیز: {eq_name}  |  بازرس: {ins.inspector.full_name}",
                  font=FONT_SMALL, bg=PRIMARY, fg="#c8d8ff").pack(anchor="e", padx=20)
 
-        # Scrollable checkpoints area
         outer = tk.Frame(self, bg=BG)
         outer.pack(fill="both", expand=True, padx=16, pady=10)
 
@@ -607,21 +593,19 @@ class InspectionExecuteDialog(tk.Toplevel):
         canvas.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
 
-        # Mousewheel scroll
         canvas.bind_all("<MouseWheel>",
                         lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
 
-        # Buttons
         btn_frame = tk.Frame(self, bg=BG)
         btn_frame.pack(fill="x", padx=16, pady=(0, 12))
 
-        tk.Button(btn_frame, text="✅ تکمیل بازرسی", font=FONT_LABEL,
+        tk.Button(btn_frame, text="✅ تکمیل بازرسی", font=FONT_NORMAL,
                   bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
                   padx=18, pady=8, command=self._complete).pack(side="right", padx=(5, 0))
-        tk.Button(btn_frame, text="💾 ذخیره موقت", font=FONT_INPUT,
+        tk.Button(btn_frame, text="💾 ذخیره موقت", font=FONT_NORMAL,
                   bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
                   padx=18, pady=8, command=self._save_progress).pack(side="right", padx=(5, 0))
-        tk.Button(btn_frame, text="❌ لغو بازرسی", font=FONT_INPUT,
+        tk.Button(btn_frame, text="❌ لغو بازرسی", font=FONT_NORMAL,
                   bg=DANGER, fg=WHITE, relief="flat", cursor="hand2",
                   padx=18, pady=8, command=self._cancel).pack(side="left")
 
@@ -630,30 +614,26 @@ class InspectionExecuteDialog(tk.Toplevel):
         existing    = {r.checkpoint_id: r for r in self.inspection.results}
 
         for cp in checkpoints:
-            # Card frame
-            card = tk.Frame(self._scroll_frame, bg=WHITE,
+            card = tk.Frame(self._scroll_frame, bg=CARD_BG,
                             highlightbackground=BORDER, highlightthickness=1)
             card.pack(fill="x", pady=6, padx=4)
 
-            # Title row
             title_bar = tk.Frame(card, bg=PRIMARY)
             title_bar.pack(fill="x")
             tk.Label(title_bar,
                      text=f"  {cp.order_number}.  {cp.title}",
-                     font=FONT_LABEL, bg=PRIMARY, fg=WHITE,
+                     font=FONT_NORMAL, bg=PRIMARY, fg=WHITE,
                      anchor="e").pack(side="right", padx=10, pady=6)
             type_fa = TYPE_FA.get(cp.checkpoint_type, cp.checkpoint_type)
             tk.Label(title_bar, text=f"[{type_fa}]",
                      font=FONT_SMALL, bg=PRIMARY, fg="#c8d8ff").pack(side="left", padx=10)
 
-            # Description
             if cp.description:
                 tk.Label(card, text=cp.description, font=FONT_SMALL,
-                         bg=WHITE, fg=SUBTLE, anchor="e", justify="right",
+                         bg=CARD_BG, fg=SUBTLE, anchor="e", justify="right",
                          wraplength=700).pack(anchor="e", padx=14, pady=(6, 2))
 
-            # Result radio buttons
-            result_frame = tk.Frame(card, bg=WHITE)
+            result_frame = tk.Frame(card, bg=CARD_BG)
             result_frame.pack(fill="x", padx=14, pady=6)
 
             result_var = tk.StringVar(value="")
@@ -662,19 +642,17 @@ class InspectionExecuteDialog(tk.Toplevel):
                                         ("❌ رد",   "fail", DANGER),
                                         ("— N/A",  "na",   SUBTLE)]:
                 tk.Radiobutton(result_frame, text=text, variable=result_var,
-                               value=value, font=FONT_INPUT,
-                               bg=WHITE, fg=color,
-                               selectcolor=WHITE,
-                               activebackground=WHITE).pack(side="right", padx=12)
+                               value=value, font=FONT_NORMAL,
+                               bg=CARD_BG, fg=color,
+                               selectcolor=CARD_BG,
+                               activebackground=CARD_BG).pack(side="right", padx=12)
 
-            # Comment
             tk.Label(card, text="توضیحات:", font=FONT_SMALL,
-                     bg=WHITE, fg=TEXT, anchor="e").pack(anchor="e", padx=14)
-            comment_text = tk.Text(card, font=FONT_INPUT, height=3,
+                     bg=CARD_BG, fg=TEXT, anchor="e").pack(anchor="e", padx=14)
+            comment_text = tk.Text(card, font=FONT_NORMAL, height=3,
                                    relief="solid", bd=1, wrap="word")
             comment_text.pack(fill="x", padx=14, pady=(2, 10))
 
-            # Restore existing result if any
             if cp.id in existing:
                 r = existing[cp.id]
                 result_var.set(r.result)
@@ -704,7 +682,6 @@ class InspectionExecuteDialog(tk.Toplevel):
     def _save_progress(self):
         try:
             results = self._collect_results()
-            # Delete old results and re-save (idempotent progress save)
             for r in results:
                 self.service.save_results(self.inspection_id, [r])
             self.db.commit()
@@ -714,13 +691,11 @@ class InspectionExecuteDialog(tk.Toplevel):
             messagebox.showerror("خطا", f"خطا در ذخیره:\n{e}", parent=self)
 
     def _complete(self):
-        # Find unanswered checkpoints
         incomplete = [
             data["checkpoint"].title
             for data in self.checkpoint_results.values()
             if not data["result_var"].get()
         ]
-
         if incomplete:
             msg = "چک‌پوینت‌های زیر هنوز نتیجه ندارند:\n• " + "\n• ".join(incomplete)
             if not messagebox.askyesno("هشدار", msg + "\n\nآیا می‌خواهید ادامه دهید؟",
@@ -755,13 +730,7 @@ class InspectionExecuteDialog(tk.Toplevel):
             messagebox.showerror("خطا", f"خطا در لغو بازرسی:\n{e}", parent=self)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  InspectionDetailDialog — Read-only view of a completed inspection
-# ══════════════════════════════════════════════════════════════════════════════
-
 class InspectionDetailDialog(tk.Toplevel):
-    """Read-only dialog showing full details of a completed inspection."""
-
     def __init__(self, parent, db_session, service: InspectionService, inspection_id: int):
         super().__init__(parent)
         self.db            = db_session
@@ -790,7 +759,6 @@ class InspectionDetailDialog(tk.Toplevel):
         self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build_ui(self):
-        # Header
         ins    = self.inspection
         result = ins.overall_result or "in_progress"
         hdr_color = {
@@ -811,9 +779,8 @@ class InspectionDetailDialog(tk.Toplevel):
                  font=FONT_SMALL, bg=hdr_color, fg=WHITE).pack(anchor="e", padx=20)
         result_text = RESULT_FA.get(result, result)
         tk.Label(hdr, text=f"نتیجه کلی: {result_text}",
-                 font=FONT_LABEL, bg=hdr_color, fg=WHITE).pack(anchor="e", padx=20)
+                 font=FONT_NORMAL, bg=hdr_color, fg=WHITE).pack(anchor="e", padx=20)
 
-        # Scrollable body
         outer = tk.Frame(self, bg=BG)
         outer.pack(fill="both", expand=True, padx=16, pady=10)
 
@@ -833,8 +800,7 @@ class InspectionDetailDialog(tk.Toplevel):
         canvas.bind_all("<MouseWheel>",
                         lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
 
-        # Close button
-        tk.Button(self, text="بستن", font=FONT_LABEL,
+        tk.Button(self, text="بستن", font=FONT_NORMAL,
                   bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
                   padx=20, pady=8, command=self.destroy).pack(pady=(0, 12))
 
@@ -845,25 +811,22 @@ class InspectionDetailDialog(tk.Toplevel):
 
         for cp in checkpoints:
             r = results_map.get(cp.id)
-
             res_value  = r.result if r else None
             card_color = {
-                "pass": GREEN_BG,
-                "fail": RED_BG,
+                "pass": "#E6F4EA",
+                "fail": "#FCE8E6",
                 "na":   "#F8F8F8",
-            }.get(res_value, WHITE)
+            }.get(res_value, CARD_BG)
 
             card = tk.Frame(self._body, bg=card_color,
                             highlightbackground=BORDER, highlightthickness=1)
             card.pack(fill="x", pady=5, padx=4)
 
-            # Title
             tk.Label(card,
                      text=f"{cp.order_number}.  {cp.title}",
-                     font=FONT_LABEL, bg=card_color, fg=TEXT,
+                     font=FONT_NORMAL, bg=card_color, fg=TEXT,
                      anchor="e").pack(anchor="e", padx=14, pady=(8, 2))
 
-            # Result badge
             res_text  = RESULT_FA.get(res_value, "— ثبت نشده")
             res_color = {
                 "pass": SUCCESS,
@@ -871,7 +834,7 @@ class InspectionDetailDialog(tk.Toplevel):
                 "na":   SUBTLE,
             }.get(res_value, SUBTLE)
 
-            tk.Label(card, text=f"نتیجه: {res_text}", font=FONT_INPUT,
+            tk.Label(card, text=f"نتیجه: {res_text}", font=FONT_NORMAL,
                      bg=card_color, fg=res_color).pack(anchor="e", padx=20)
 
             if r and r.comment:

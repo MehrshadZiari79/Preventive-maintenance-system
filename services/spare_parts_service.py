@@ -5,10 +5,9 @@ from database.models import SparePart, SparePartTransaction
 
 
 class SparePartsService:
-    def __init__(self, session):
-        self.repo = SparePartsRepository(session)
+    def __init__(self, session_factory):
+        self.repo = SparePartsRepository(session_factory)
 
-    # Part methods
     def get_all_parts(self) -> List[SparePart]:
         return self.repo.get_all()
 
@@ -19,16 +18,13 @@ class SparePartsService:
         return self.repo.get_by_part_number(part_number)
 
     def create_part(self, data: Dict[str, Any]) -> SparePart:
-        # Validate required fields
         if not data.get('part_number') or not data.get('name'):
             raise ValueError("Part number and name are required")
-        # Check for duplicate part number
         if self.repo.get_by_part_number(data['part_number']):
             raise ValueError(f"Part number {data['part_number']} already exists")
         return self.repo.create(data)
 
     def update_part(self, part_id: int, data: Dict[str, Any]) -> SparePart:
-        # Check duplicate part number if changed
         if 'part_number' in data and data['part_number']:
             existing = self.repo.get_by_part_number(data['part_number'])
             if existing and existing.id != part_id:
@@ -53,14 +49,11 @@ class SparePartsService:
     def get_stats(self) -> Dict[str, Any]:
         return self.repo.get_stats()
 
-    # Transaction methods
-    def add_stock_transaction(self, data: Dict[str, Any], work_order_id: Optional[int] = None) -> SparePartTransaction:
-        """
-        Add stock movement (IN or OUT).
-        If work_order_id is provided, store it in the reference field (overwrites any existing reference).
-        """
+    def add_stock_transaction(self, data: Dict[str, Any], work_order_id: Optional[int] = None, batch_price: Optional[float] = None) -> SparePartTransaction:
         if work_order_id:
             data['reference'] = f"WO-{work_order_id}"
+        if batch_price is not None:
+            data['batch_price'] = batch_price
         return self.repo.add_transaction(data)
 
     def get_part_transactions(self, part_id: int) -> List[SparePartTransaction]:
@@ -68,3 +61,6 @@ class SparePartsService:
 
     def get_all_transactions(self, limit: int = 100) -> List[SparePartTransaction]:
         return self.repo.get_all_transactions(limit)
+
+    def get_price_history(self, part_id: int) -> List[dict]:
+        return self.repo.get_price_history(part_id)

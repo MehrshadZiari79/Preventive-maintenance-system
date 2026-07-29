@@ -1,15 +1,12 @@
-import os
-import sys
+# runtime_hook.py
+import os, sys
 
-def _setup_dll_search_path():
-    if getattr(sys, 'frozen', False):
-        # The directory where the executable and all collected DLLs live
-        meipass = sys._MEIPASS
-        if hasattr(os, 'add_dll_directory'):
-            # Windows 8+ allows adding a specific directory
-            os.add_dll_directory(meipass)
-        else:
-            # Fallback: add to PATH
-            os.environ['PATH'] = meipass + os.pathsep + os.environ.get('PATH', '')
+if hasattr(sys, '_MEIPASS'):
+    base = sys._MEIPASS
+    pil_sub = os.path.join(base, 'PIL')
+    adds = [base]
+    if os.path.isdir(pil_sub):
+        adds.append(pil_sub)
+    os.environ['PATH'] = os.pathsep.join(adds) + os.pathsep + os.environ.get('PATH', '')
 
-_setup_dll_search_path()
+os.environ['MPLBACKEND'] = 'TkAgg'

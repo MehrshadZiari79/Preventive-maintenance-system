@@ -1,7 +1,15 @@
 # views/category_manager_dialog.py
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
+CARD_BG = WHITE
+CARD_BORDER = GRAY_BORDER
+SECTION_BG = GRAY_BG
 
 class CategoryManagerDialog(tk.Toplevel):
     def __init__(self, parent, equipment_repo, callback=None):
@@ -9,8 +17,8 @@ class CategoryManagerDialog(tk.Toplevel):
         self.equipment_repo = equipment_repo
         self.callback = callback
         self.title("مدیریت دسته‌بندی تجهیزات")
-        self.geometry("400x400")
-        self.configure(bg="#F0F4F8")
+        self.geometry("450x500")
+        self.configure(bg=SECTION_BG)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -19,32 +27,53 @@ class CategoryManagerDialog(tk.Toplevel):
         self._load_categories()
 
     def _build_ui(self):
-        main = tk.Frame(self, bg="#F0F4F8", padx=20, pady=20)
-        main.pack(fill=tk.BOTH, expand=True)
+        header = tk.Frame(self, bg=NAVY, height=50)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Label(header, text="🏷️ مدیریت دسته‌بندی‌ها", font=FONT_HEADING,
+                 bg=NAVY, fg=WHITE).pack(pady=12)
 
-        tk.Label(main, text="دسته‌بندی‌های موجود", font=("Tahoma", 12, "bold"),
-                 bg="#F0F4F8", fg="#202124").pack(pady=(0, 10))
+        # ── Scrollable area ──────────────────────────────────────
+        canvas = tk.Canvas(self, bg=SECTION_BG, highlightthickness=0)
+        vsb = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable = tk.Frame(canvas, bg=SECTION_BG)
 
-        # Listbox with scrollbar
-        list_frame = tk.Frame(main)
-        list_frame.pack(fill=tk.BOTH, expand=True)
-        self.listbox = tk.Listbox(list_frame, font=("Tahoma", 10), bg="#FFFFFF",
-                                  relief="solid", bd=1)
+        scrollable.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+
+        canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        vsb.pack(side="right", fill="y")
+
+        main = tk.Frame(scrollable, bg=CARD_BG)
+        main.pack(fill="both", expand=True, padx=15, pady=15)
+
+        tk.Label(main, text="دسته‌بندی‌های موجود", font=FONT_HEADING,
+                 bg=CARD_BG, fg=TEXT_DARK).pack(pady=(10, 5))
+
+        list_frame = tk.Frame(main, bg=CARD_BG)
+        list_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.listbox = tk.Listbox(list_frame, font=FONT_NORMAL, bg=CARD_BG,
+                                  relief="solid", bd=1, highlightbackground=CARD_BORDER)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
         self.listbox.configure(yscrollcommand=scrollbar.set)
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-        btn_frame = tk.Frame(main, bg="#F0F4F8")
-        btn_frame.pack(fill=tk.X, pady=(15, 0))
-
-        tk.Button(btn_frame, text="حذف دسته‌بندی انتخاب شده", font=("Tahoma", 10),
-                  bg="#DC3545", fg="white", relief="flat", cursor="hand2",
-                  command=self._delete_category, padx=15, pady=5).pack(side=tk.RIGHT, padx=5)
-
-        tk.Button(btn_frame, text="بستن", font=("Tahoma", 10),
-                  bg="#6C757D", fg="white", relief="flat", cursor="hand2",
-                  command=self.destroy, padx=15, pady=5).pack(side=tk.RIGHT, padx=5)
+        btn_frame = tk.Frame(main, bg=CARD_BG)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        tk.Button(btn_frame, text="✏️ ویرایش", font=FONT_NORMAL,
+                  bg=NAVY, fg=WHITE, relief="flat", cursor="hand2",
+                  command=self._edit_category, padx=12, pady=5).pack(side="right", padx=5)
+        tk.Button(btn_frame, text="🗑️ حذف", font=FONT_NORMAL,
+                  bg=RED, fg=WHITE, relief="flat", cursor="hand2",
+                  command=self._delete_category, padx=12, pady=5).pack(side="right", padx=5)
+        tk.Button(btn_frame, text="بستن", font=FONT_NORMAL,
+                  bg=NAVY_LIGHT, fg=WHITE, relief="flat", cursor="hand2",
+                  command=self.destroy, padx=12, pady=5).pack(side="right", padx=5)
 
     def _load_categories(self):
         self.listbox.delete(0, tk.END)
@@ -52,13 +81,34 @@ class CategoryManagerDialog(tk.Toplevel):
         for cat in categories:
             self.listbox.insert(tk.END, cat)
 
+    def _edit_category(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            messagebox.showwarning("هشدار", "لطفاً یک دسته‌بندی را انتخاب کنید.", parent=self)
+            return
+        old_name = self.listbox.get(selection[0])
+        new_name = simpledialog.askstring("ویرایش دسته‌بندی",
+                                          f"نام جدید برای '{old_name}':",
+                                          initialvalue=old_name, parent=self)
+        if new_name and new_name.strip():
+            new_name = new_name.strip()
+            if new_name == old_name:
+                return
+            success, msg = self.equipment_repo.rename_category(old_name, new_name)
+            if success:
+                messagebox.showinfo("موفق", msg, parent=self)
+                self._load_categories()
+                if self.callback:
+                    self.callback()
+            else:
+                messagebox.showerror("خطا", msg, parent=self)
+
     def _delete_category(self):
         selection = self.listbox.curselection()
         if not selection:
             messagebox.showwarning("هشدار", "لطفاً یک دسته‌بندی را انتخاب کنید.", parent=self)
             return
         category = self.listbox.get(selection[0])
-        # Check if category is used by any equipment
         used = self.equipment_repo.is_category_used(category)
         if used:
             messagebox.showerror("خطا", f"دسته‌بندی '{category}' در حال استفاده است و قابل حذف نیست.", parent=self)

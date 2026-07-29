@@ -1,191 +1,297 @@
 # views/equipment_view.py
-"""
-Equipment View - Equipment Management Interface
-"""
 import tkinter as tk
 from tkinter import ttk, messagebox
+from datetime import datetime
 from database.models import EquipmentStatus
 from views.equipment_dialog import EquipmentDialog
 from views.category_manager_dialog import CategoryManagerDialog
+from views.location_manager_dialog import LocationManagerDialog
 from utils.theme import (
     NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
     TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
     FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
 )
 
-BG = GRAY_BG
-WHITE = WHITE
-PRIMARY = NAVY
-TEXT = TEXT_DARK
-SUBTLE = TEXT_LIGHT
-BORDER = GRAY_BORDER
-SUCCESS = SUCCESS
-WARNING = WARNING
-DANGER = RED
+CARD_BG     = "#FFFFFF"
+CARD_BORDER = "#E8ECF0"
+SECTION_BG  = "#F4F6F9"
+HEADER_H    = 72
+STRIP_H     = 4
 
-FONT_TITLE = FONT_TITLE
-FONT_NORMAL = FONT_NORMAL
-FONT_SMALL = FONT_SMALL
+ACCENT_GREEN  = SUCCESS
+ACCENT_AMBER  = "#D97706"
+ACCENT_ROSE   = "#DC2626"
+ACCENT_NAVY   = NAVY
 
 STATUS_FA = {
     EquipmentStatus.OPERATIONAL.value: "عملیاتی",
     EquipmentStatus.MAINTENANCE.value: "در تعمیر",
-    EquipmentStatus.BREAKDOWN.value: "خراب",
-    EquipmentStatus.INACTIVE.value: "غیرفعال",
+    EquipmentStatus.BREAKDOWN.value:   "خراب",
+    EquipmentStatus.INACTIVE.value:    "غیرفعال",
 }
-
 STATUS_COLOR = {
-    EquipmentStatus.OPERATIONAL.value: SUCCESS,
-    EquipmentStatus.MAINTENANCE.value: WARNING,
-    EquipmentStatus.BREAKDOWN.value: DANGER,
-    EquipmentStatus.INACTIVE.value: SUBTLE,
+    EquipmentStatus.OPERATIONAL.value: ACCENT_GREEN,
+    EquipmentStatus.MAINTENANCE.value: ACCENT_AMBER,
+    EquipmentStatus.BREAKDOWN.value:   ACCENT_ROSE,
+    EquipmentStatus.INACTIVE.value:    TEXT_LIGHT,
+}
+STATUS_BADGE_BG = {
+    EquipmentStatus.OPERATIONAL.value: "#D1FAE5",
+    EquipmentStatus.MAINTENANCE.value: "#FEF3C7",
+    EquipmentStatus.BREAKDOWN.value:   "#FEE2E2",
+    EquipmentStatus.INACTIVE.value:    CARD_BORDER,
 }
 
 
 class EquipmentView(tk.Frame):
     def __init__(self, parent, equipment_repo, current_user):
-        super().__init__(parent, bg=BG)
+        super().__init__(parent, bg=SECTION_BG)
         self.equipment_repo = equipment_repo
-        self.current_user = current_user
-        self.is_admin = current_user["role"] == "admin"
-        self.is_manager = current_user["role"] in ["admin", "manager"]
-
+        self.current_user   = current_user
+        self.is_admin       = current_user["role"] == "admin"
+        self.is_manager     = current_user["role"] in ["admin", "manager"]
+        self.is_technician  = current_user["role"] == "technician"
+        # Technicians can add/edit/change status, but not delete or manage categories/locations
+        self.can_edit       = self.is_manager or self.is_technician
         self._build_ui()
         self._load_data()
 
     def _build_ui(self):
-        # Header with navy background
-        header = tk.Frame(self, bg=PRIMARY, height=60)
-        header.pack(fill="x")
-        header.pack_propagate(False)
+        self._build_header()
+        self._build_stats_bar()
+        self._build_toolbar()
+        self._build_table()
+        self._build_action_bar()
 
-        tk.Label(header, text="⚙️  مدیریت تجهیزات", font=FONT_TITLE,
-                 bg=PRIMARY, fg=WHITE).pack(side="right", padx=20, pady=12)
+    def _build_header(self):
+        hdr = tk.Frame(self, bg=NAVY, height=HEADER_H)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
 
-        btn_frame = tk.Frame(header, bg=PRIMARY)
-        btn_frame.pack(side="left", padx=10)
+        right = tk.Frame(hdr, bg=NAVY)
+        right.pack(side="right", padx=24, fill="y")
+        tk.Label(right, text="⚙️", font=("Tahoma", 20),
+                 bg=NAVY, fg=WHITE).pack(side="right", pady=18)
+        title_col = tk.Frame(right, bg=NAVY)
+        title_col.pack(side="right", padx=(0, 10), fill="y")
+        tk.Label(title_col, text="مدیریت تجهیزات",
+                 font=FONT_TITLE, bg=NAVY, fg=WHITE).pack(anchor="e", pady=(16, 0))
+        tk.Label(title_col, text="ثبت، ویرایش و پایش وضعیت تجهیزات کارخانه",
+                 font=FONT_SMALL, bg=NAVY, fg=WHITE).pack(anchor="e")
 
-        # Only managers and admins can add equipment
+        left = tk.Frame(hdr, bg=NAVY)
+        left.pack(side="left", padx=20, fill="y")
+        if self.can_edit:
+            tk.Button(left, text="➕  افزودن تجهیز", font=FONT_SMALL,
+                      bg=WHITE, fg=NAVY, relief="flat", cursor="hand2",
+                      padx=14, pady=6,
+                      command=self._add_equipment).pack(side="left", padx=4, pady=20)
         if self.is_manager:
-            tk.Button(btn_frame, text="➕ افزودن تجهیز", font=FONT_NORMAL,
-                      bg=WHITE, fg=PRIMARY, relief="flat", cursor="hand2",
-                      padx=12, pady=5, command=self._add_equipment).pack(side="left", padx=5)
+            tk.Button(left, text="🏷️  دسته‌بندی‌ها", font=FONT_SMALL,
+                      bg=NAVY_LIGHT, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=14, pady=6,
+                      command=self._manage_categories).pack(side="left", padx=4, pady=20)
+            tk.Button(left, text="📍 موقعیت‌ها", font=FONT_SMALL,
+                      bg=NAVY_LIGHT, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=14, pady=6,
+                      command=self._manage_locations).pack(side="left", padx=4, pady=20)
+        tk.Button(left, text="📤  خروجی Excel", font=FONT_SMALL,
+                  bg="#0D9488", fg=WHITE, relief="flat", cursor="hand2",
+                  padx=14, pady=6,
+                  command=self._export).pack(side="left", padx=4, pady=20)
 
-        # Category manager – also only managers
-        if self.is_manager:
-            tk.Button(btn_frame, text="🏷️ مدیریت دسته‌بندی", font=FONT_NORMAL,
-                      bg=WHITE, fg=PRIMARY, relief="flat", cursor="hand2",
-                      padx=12, pady=5, command=self._manage_categories).pack(side="left", padx=5)
+        tk.Frame(self, bg=CARD_BORDER, height=1).pack(fill="x")
 
-        # Export is available to everyone
-        tk.Button(btn_frame, text="📤 خروجی Excel", font=FONT_NORMAL,
-                  bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=12, pady=5, command=self._export).pack(side="left", padx=5)
-
-        # Stats bar
-        stats_frame = tk.Frame(self, bg=BG)
-        stats_frame.pack(fill="x", padx=20, pady=(10, 0))
-
+    def _build_stats_bar(self):
+        self._stats_frame = tk.Frame(self, bg=SECTION_BG)
+        self._stats_frame.pack(fill="x", padx=20, pady=(16, 0))
         self.stat_labels = {}
-        stats = [
-            ("total", "کل تجهیزات", PRIMARY),
-            ("operational", "عملیاتی", SUCCESS),
-            ("maintenance", "در تعمیر", WARNING),
-            ("breakdown", "خراب", DANGER),
-        ]
 
-        for key, label, color in stats:
-            card = tk.Frame(stats_frame, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
-            card.pack(side="right", padx=5, ipadx=15, ipady=8)
-            tk.Label(card, text=label, font=FONT_SMALL, bg=WHITE, fg=SUBTLE).pack()
-            lbl = tk.Label(card, text="0", font=FONT_HEADING, bg=WHITE, fg=color)
-            lbl.pack()
+        stat_defs = [
+            ("total",       "کل تجهیزات",  ACCENT_NAVY,  "⚙️"),
+            ("operational", "عملیاتی",     ACCENT_GREEN, "✅"),
+            ("maintenance", "در تعمیر",    ACCENT_AMBER, "🔧"),
+            ("breakdown",   "خراب",        ACCENT_ROSE,  "🔴"),
+        ]
+        for key, label, color, icon in stat_defs:
+            shadow = tk.Frame(self._stats_frame, bg=CARD_BORDER)
+            shadow.pack(side="right", padx=6)
+            card = tk.Frame(shadow, bg=CARD_BG)
+            card.pack(fill="both", expand=True, padx=1, pady=1)
+            tk.Frame(card, bg=color, height=STRIP_H).pack(fill="x")
+            inner = tk.Frame(card, bg=CARD_BG)
+            inner.pack(padx=18, pady=10)
+            top = tk.Frame(inner, bg=CARD_BG)
+            top.pack(fill="x")
+            tk.Label(top, text=icon, font=("Tahoma", 14),
+                     bg=CARD_BG, fg=color).pack(side="right")
+            tk.Label(top, text=label, font=FONT_SMALL,
+                     bg=CARD_BG, fg=TEXT_LIGHT).pack(side="right", padx=(0, 4))
+            lbl = tk.Label(inner, text="0", font=FONT_HEADING,
+                           bg=CARD_BG, fg=color)
+            lbl.pack(anchor="center", pady=(4, 0))
             self.stat_labels[key] = lbl
 
-        # Toolbar: search, category filter, status filter
-        toolbar = tk.Frame(self, bg=BG)
-        toolbar.pack(fill="x", padx=20, pady=(10, 5))
+    def _build_toolbar(self):
+        row = tk.Frame(self, bg=SECTION_BG)
+        row.pack(fill="x", padx=20, pady=(18, 6))
+        tk.Label(row, text="🗂️  لیست تجهیزات",
+                 font=FONT_HEADING, bg=SECTION_BG, fg=TEXT_DARK).pack(side="right")
+        tk.Frame(row, bg=CARD_BORDER, height=1).pack(
+            side="right", fill="x", expand=True, padx=(0, 12), pady=8)
 
-        tk.Label(toolbar, text="جستجو:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(0,5))
+        outer = tk.Frame(self, bg=CARD_BORDER)
+        outer.pack(fill="x", padx=20, pady=(0, 10))
+        bar = tk.Frame(outer, bg=CARD_BG)
+        bar.pack(fill="x", padx=1, pady=1)
+
+        inner = tk.Frame(bar, bg=CARD_BG)
+        inner.pack(fill="x", padx=16, pady=10)
+
+        tk.Label(inner, text="🔍  جستجو:", font=FONT_NORMAL,
+                 bg=CARD_BG, fg=TEXT_DARK).pack(side="right", padx=(0, 6))
         self.search_var = tk.StringVar()
         self.search_var.trace("w", lambda *_: self._load_data())
-        tk.Entry(toolbar, textvariable=self.search_var, font=FONT_NORMAL,
-                 bg=WHITE, relief="solid", bd=1, width=25).pack(side="right", ipady=4)
+        tk.Entry(inner, textvariable=self.search_var, font=FONT_NORMAL,
+                 bg=SECTION_BG, relief="solid", bd=1,
+                 width=22).pack(side="right", ipady=5)
 
-        tk.Label(toolbar, text="دسته:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(15,5))
+        tk.Frame(inner, bg=CARD_BORDER, width=1).pack(
+            side="right", fill="y", padx=14, pady=4)
+
+        tk.Label(inner, text="دسته:", font=FONT_NORMAL,
+                 bg=CARD_BG, fg=TEXT_DARK).pack(side="right", padx=(0, 6))
         self.category_var = tk.StringVar(value="همه")
-        self.category_combo = ttk.Combobox(toolbar, textvariable=self.category_var,
-                                           font=FONT_NORMAL, state="readonly", width=15)
-        self.category_combo.pack(side="right", ipady=2)
+        self.category_combo = ttk.Combobox(
+            inner, textvariable=self.category_var,
+            font=FONT_NORMAL, state="readonly", width=14)
+        self.category_combo.pack(side="right", ipady=3)
         self.category_combo.bind("<<ComboboxSelected>>", lambda e: self._load_data())
 
-        tk.Label(toolbar, text="وضعیت:", font=FONT_NORMAL, bg=BG, fg=TEXT).pack(side="right", padx=(15,5))
-        self.status_var = tk.StringVar(value="همه")
-        status_combo = ttk.Combobox(toolbar, textvariable=self.status_var,
-                                    values=["همه"] + list(STATUS_FA.values()),
-                                    font=FONT_NORMAL, state="readonly", width=12)
-        status_combo.pack(side="right", ipady=2)
-        status_combo.bind("<<ComboboxSelected>>", lambda e: self._load_data())
+        tk.Frame(inner, bg=CARD_BORDER, width=1).pack(
+            side="right", fill="y", padx=14, pady=4)
 
-        # Table
-        table_container = tk.Frame(self, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
-        table_container.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        tk.Label(inner, text="وضعیت:", font=FONT_NORMAL,
+                 bg=CARD_BG, fg=TEXT_DARK).pack(side="right", padx=(0, 6))
+        self.status_var = tk.StringVar(value="همه")
+        ttk.Combobox(
+            inner, textvariable=self.status_var,
+            values=["همه"] + list(STATUS_FA.values()),
+            font=FONT_NORMAL, state="readonly", width=11
+        ).pack(side="right", ipady=3)
+        self.status_var.trace("w", lambda *_: self._load_data())
+
+        self._row_count_lbl = tk.Label(
+            inner, text="", font=FONT_SMALL,
+            bg=NAVY, fg=WHITE, padx=10, pady=2)
+        self._row_count_lbl.pack(side="left")
+
+    def _build_table(self):
+        outer = tk.Frame(self, bg=CARD_BORDER)
+        outer.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        card = tk.Frame(outer, bg=CARD_BG)
+        card.pack(fill="both", expand=True, padx=1, pady=1)
 
         cols = ("code", "name", "category", "location", "status", "updated")
-        self.tree = ttk.Treeview(table_container, columns=cols, show="headings", height=15)
+        self.tree = ttk.Treeview(card, columns=cols, show="headings", height=16)
+
+        style = ttk.Style()
+        style.configure("Equipment.Treeview",
+                        background=CARD_BG, fieldbackground=CARD_BG,
+                        foreground=TEXT_DARK, rowheight=30,
+                        font=FONT_NORMAL)
+        style.configure("Equipment.Treeview.Heading",
+                        background=NAVY, foreground=WHITE,
+                        font=FONT_NORMAL, relief="flat")
+        style.map("Equipment.Treeview",
+                  background=[("selected", NAVY)],
+                  foreground=[("selected", WHITE)])
+        self.tree.configure(style="Equipment.Treeview")
 
         headers = [
-            ("code", "کد", 100),
-            ("name", "نام تجهیز", 200),
-            ("category", "دسته", 120),
-            ("location", "موقعیت", 150),
-            ("status", "وضعیت", 100),
-            ("updated", "آخرین بروزرسانی", 150),
+            ("code",    "کد تجهیز",         110),
+            ("name",    "نام تجهیز",         220),
+            ("category","دسته‌بندی",          130),
+            ("location","موقعیت",             150),
+            ("status",  "وضعیت",             110),
+            ("updated", "آخرین بروزرسانی",   150),
         ]
-
         for col, text, width in headers:
-            self.tree.heading(col, text=text, command=lambda c=col: self._sort_column(c))
+            self.tree.heading(col, text=text,
+                              command=lambda c=col: self._sort_column(c))
             self.tree.column(col, width=width, anchor="center")
 
-        scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
-        self.tree.pack(side="right", fill="both", expand=True)
-        scrollbar.pack(side="left", fill="y")
+        for status, color in STATUS_COLOR.items():
+            bg = STATUS_BADGE_BG.get(status, CARD_BG)
+            self.tree.tag_configure(status, foreground=color)
 
-        self.tree.bind("<Double-1>", lambda e: self._edit_equipment())
+        vsb = ttk.Scrollbar(card, orient="vertical",   command=self.tree.yview)
+        hsb = ttk.Scrollbar(card, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
-        # Action buttons
-        btn_frame = tk.Frame(self, bg=BG)
-        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        card.rowconfigure(0, weight=1)
+        card.columnconfigure(0, weight=1)
 
-        if self.is_manager:
-            tk.Button(btn_frame, text="✏️ ویرایش", font=FONT_NORMAL,
-                      bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
-                      padx=15, pady=8, command=self._edit_equipment).pack(side="right", padx=5)
-            tk.Button(btn_frame, text="🔄 تغییر وضعیت", font=FONT_NORMAL,
-                      bg=WARNING, fg=WHITE, relief="flat", cursor="hand2",
-                      padx=15, pady=8, command=self._change_status).pack(side="right", padx=5)
+        self.tree.bind("<Double-1>",    lambda e: self._edit_equipment())
+        self.tree.bind("<Delete>",      lambda e: self._delete_selected())
+        self.tree.bind("<F2>",          lambda e: self._edit_or_add())
+        self.tree.bind("<Control-n>",   lambda e: self._add_equipment())
+        self.tree.bind("<Button-3>",    self._show_context_menu)
+        self._build_context_menu()
 
+    def _build_context_menu(self):
+        self._ctx = tk.Menu(self, tearoff=0, font=FONT_NORMAL)
+        if self.can_edit:
+            self._ctx.add_command(label="✏️  ویرایش",           command=self._edit_equipment)
+            self._ctx.add_command(label="🔄  تغییر وضعیت",      command=self._change_status)
+            self._ctx.add_separator()
         if self.is_admin:
-            tk.Button(btn_frame, text="🗑️ حذف", font=FONT_NORMAL,
-                      bg=DANGER, fg=WHITE, relief="flat", cursor="hand2",
-                      padx=15, pady=8, command=self._delete_equipment).pack(side="right", padx=5)
+            self._ctx.add_command(label="🗑️  حذف",              command=self._delete_equipment)
 
-    def _manage_categories(self):
-        if not self.is_manager:
-            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند دسته‌بندی‌ها را مدیریت کنند.", parent=self)
-            return
-        def refresh():
-            self._update_category_filter()
-        dialog = CategoryManagerDialog(self, self.equipment_repo, callback=refresh)
-        self.wait_window(dialog)
+    def _show_context_menu(self, event):
+        row = self.tree.identify_row(event.y)
+        if row:
+            self.tree.selection_set(row)
+            try:
+                self._ctx.post(event.x_root, event.y_root)
+            finally:
+                self._ctx.grab_release()
+
+    def _build_action_bar(self):
+        outer = tk.Frame(self, bg=CARD_BORDER)
+        outer.pack(fill="x", padx=20, pady=(0, 20))
+        bar = tk.Frame(outer, bg=CARD_BG)
+        bar.pack(fill="x", padx=1, pady=1)
+        inner = tk.Frame(bar, bg=CARD_BG)
+        inner.pack(fill="x", padx=16, pady=10)
+
+        if self.can_edit:
+            tk.Button(inner, text="✏️  ویرایش", font=FONT_NORMAL,
+                      bg=NAVY, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=16, pady=8,
+                      command=self._edit_equipment).pack(side="right", padx=4)
+            tk.Button(inner, text="🔄  تغییر وضعیت", font=FONT_NORMAL,
+                      bg=ACCENT_AMBER, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=16, pady=8,
+                      command=self._change_status).pack(side="right", padx=4)
+        if self.is_admin:
+            tk.Button(inner, text="🗑️  حذف", font=FONT_NORMAL,
+                      bg=ACCENT_ROSE, fg=WHITE, relief="flat", cursor="hand2",
+                      padx=16, pady=8,
+                      command=self._delete_equipment).pack(side="right", padx=4)
+
+        tk.Label(inner, text="F2: ویرایش  |  Del: حذف  |  Ctrl+N: افزودن",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
 
     def _load_data(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        search = self.search_var.get().strip()
-        category = self.category_var.get()
+        search    = self.search_var.get().strip()
+        category  = self.category_var.get()
         status_fa = self.status_var.get()
 
         if search:
@@ -195,7 +301,6 @@ class EquipmentView(tk.Frame):
 
         if category != "همه":
             equipment_list = [e for e in equipment_list if e["category"] == category]
-
         if status_fa != "همه":
             status_en = next((k for k, v in STATUS_FA.items() if v == status_fa), None)
             if status_en:
@@ -203,36 +308,39 @@ class EquipmentView(tk.Frame):
 
         for eq in equipment_list:
             status_text = STATUS_FA.get(eq["status"], eq["status"])
+            updated = eq.get("updated_at", "—") or "—"
+            try:
+                dt      = datetime.strptime(updated, "%Y-%m-%d %H:%M:%S")
+                updated = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                pass
             self.tree.insert("", "end", values=(
-                eq["code"],
-                eq["name"],
-                eq["category"],
-                eq["location"],
-                status_text,
-                eq["updated_at"]
+                eq["code"], eq["name"], eq["category"],
+                eq["location"], status_text, updated
             ), tags=(eq["status"],))
 
-        for status, color in STATUS_COLOR.items():
-            self.tree.tag_configure(status, foreground=color)
+        count = len(equipment_list)
+        self._row_count_lbl.config(
+            text=f"  {count} تجهیز  " if count else "  بدون نتیجه  ")
 
         self._update_stats()
         self._update_category_filter()
 
     def _update_stats(self):
         stats = self.equipment_repo.get_stats()
-        self.stat_labels["total"].config(text=str(stats["total"]))
-        self.stat_labels["operational"].config(text=str(stats["operational"]))
-        self.stat_labels["maintenance"].config(text=str(stats["maintenance"]))
-        self.stat_labels["breakdown"].config(text=str(stats["breakdown"]))
+        self.stat_labels["total"].config(text=str(stats.get("total", 0)))
+        self.stat_labels["operational"].config(text=str(stats.get("operational", 0)))
+        self.stat_labels["maintenance"].config(text=str(stats.get("maintenance", 0)))
+        self.stat_labels["breakdown"].config(text=str(stats.get("breakdown", 0)))
 
     def _update_category_filter(self):
-        categories = ["همه"] + self.equipment_repo.get_categories()
-        self.category_combo["values"] = categories
+        cats = ["همه"] + self.equipment_repo.get_categories()
+        self.category_combo["values"] = cats
 
     def _sort_column(self, col):
         items = [(self.tree.set(k, col), k) for k in self.tree.get_children("")]
-        items.sort(reverse=False)
-        for index, (val, k) in enumerate(items):
+        items.sort()
+        for index, (_, k) in enumerate(items):
             self.tree.move(k, "", index)
 
     def _get_selected_equipment(self):
@@ -241,22 +349,20 @@ class EquipmentView(tk.Frame):
             messagebox.showwarning("هشدار", "لطفاً یک تجهیز انتخاب کنید.", parent=self)
             return None
         values = self.tree.item(selected[0], "values")
-        code = values[0]
-        return self.equipment_repo.get_equipment_by_code(code)
+        return self.equipment_repo.get_equipment_by_code(values[0])
 
     def _add_equipment(self):
-        if not self.is_manager:
-            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند تجهیز اضافه کنند.", parent=self)
+        if not self.can_edit:
+            messagebox.showwarning("دسترسی", "شما مجاز به افزودن تجهیز نیستید.", parent=self)
             return
         dialog = EquipmentDialog(self, self.equipment_repo)
         self.wait_window(dialog)
         if dialog.result:
             self._load_data()
-            messagebox.showinfo("موفق", "تجهیز با موفقیت اضافه شد.", parent=self)
 
     def _edit_equipment(self):
-        if not self.is_manager:
-            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند تجهیز ویرایش کنند.", parent=self)
+        if not self.can_edit:
+            messagebox.showwarning("دسترسی", "شما مجاز به ویرایش تجهیز نیستید.", parent=self)
             return
         equipment = self._get_selected_equipment()
         if not equipment:
@@ -265,58 +371,99 @@ class EquipmentView(tk.Frame):
         self.wait_window(dialog)
         if dialog.result:
             self._load_data()
-            messagebox.showinfo("موفق", "تجهیز با موفقیت ویرایش شد.", parent=self)
+
+    def _edit_or_add(self):
+        if not self.can_edit:
+            return
+        selected = self.tree.selection()
+        if not selected:
+            self._add_equipment()
+        else:
+            self._edit_equipment()
 
     def _change_status(self):
-        if not self.is_manager:
-            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند وضعیت تجهیز را تغییر دهند.", parent=self)
+        if not self.can_edit:
+            messagebox.showwarning("دسترسی", "شما مجاز به تغییر وضعیت نیستید.", parent=self)
             return
         equipment = self._get_selected_equipment()
         if not equipment:
             return
 
-        status_dialog = tk.Toplevel(self)
-        status_dialog.title("تغییر وضعیت")
-        status_dialog.configure(bg=WHITE)
-        status_dialog.resizable(False, False)
-        status_dialog.geometry("350x200")
+        dlg = tk.Toplevel(self)
+        dlg.title("تغییر وضعیت تجهیز")
+        dlg.configure(bg=SECTION_BG)
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
 
-        tk.Label(status_dialog, text=f"تجهیز: {equipment['name']}", font=FONT_NORMAL,
-                 bg=WHITE, fg=TEXT).pack(pady=(20, 10))
+        hdr = tk.Frame(dlg, bg=NAVY, height=48)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Label(hdr, text="🔄  تغییر وضعیت تجهیز",
+                 font=FONT_HEADING, bg=NAVY, fg=WHITE).pack(pady=10)
 
-        tk.Label(status_dialog, text="وضعیت جدید:", font=FONT_NORMAL,
-                 bg=WHITE, fg=TEXT).pack(pady=(10, 5))
+        body = tk.Frame(dlg, bg=SECTION_BG)
+        body.pack(fill="both", expand=True, padx=30, pady=20)
+
+        tk.Label(body, text=f"تجهیز: {equipment['name']}",
+                 font=FONT_NORMAL, bg=SECTION_BG, fg=TEXT_DARK).pack(anchor="e", pady=(0, 10))
+        tk.Label(body, text="وضعیت جدید:",
+                 font=FONT_NORMAL, bg=SECTION_BG, fg=TEXT_DARK).pack(anchor="e", pady=(0, 6))
 
         status_var = tk.StringVar(value=STATUS_FA.get(equipment["status"], ""))
-        status_combo = ttk.Combobox(status_dialog, textvariable=status_var,
-                                    values=list(STATUS_FA.values()),
-                                    font=FONT_NORMAL, state="readonly", width=20)
-        status_combo.pack(pady=5)
+        ttk.Combobox(body, textvariable=status_var,
+                     values=list(STATUS_FA.values()),
+                     font=FONT_NORMAL, state="readonly",
+                     width=22).pack(anchor="e", ipady=4)
 
-        def save_status():
-            new_status_fa = status_var.get()
-            new_status_en = next((k for k, v in STATUS_FA.items() if v == new_status_fa), None)
-            if not new_status_en:
-                messagebox.showerror("خطا", "وضعیت نامعتبر است.", parent=status_dialog)
+        def save():
+            new_fa = status_var.get()
+            new_en = next((k for k, v in STATUS_FA.items() if v == new_fa), None)
+            if not new_en:
+                messagebox.showerror("خطا", "وضعیت نامعتبر است.", parent=dlg)
                 return
-            success, msg = self.equipment_repo.update_status(equipment["id"], new_status_en)
-            if success:
-                status_dialog.destroy()
+            ok, msg = self.equipment_repo.update_status(equipment["id"], new_en)
+            if ok:
+                dlg.destroy()
                 self._load_data()
                 messagebox.showinfo("موفق", msg, parent=self)
             else:
-                messagebox.showerror("خطا", msg, parent=status_dialog)
+                messagebox.showerror("خطا", msg, parent=dlg)
 
-        tk.Button(status_dialog, text="ذخیره", font=FONT_NORMAL,
-                  bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=20, pady=8, command=save_status).pack(pady=20)
+        tk.Button(body, text="ذخیره", font=FONT_NORMAL,
+                  bg=NAVY, fg=WHITE, relief="flat", cursor="hand2",
+                  padx=24, pady=8, command=save).pack(pady=20)
 
-        status_dialog.transient(self)
-        status_dialog.grab_set()
+        dlg.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width()  - dlg.winfo_width())  // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
+
+    def _manage_categories(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند دسته‌بندی‌ها را مدیریت کنند.", parent=self)
+            return
+        dialog = CategoryManagerDialog(
+            self, self.equipment_repo,
+            callback=self._update_category_filter)
+        self.wait_window(dialog)
+
+    def _manage_locations(self):
+        if not self.is_manager:
+            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند موقعیت‌ها را مدیریت کنند.", parent=self)
+            return
+        dialog = LocationManagerDialog(
+            self, self.equipment_repo,
+            callback=None)   # the equipment dialog already refreshes itself
+        self.wait_window(dialog)
 
     def _export(self):
         from views.export_dialog import run_equipment_export
-        selected = self._get_selected_equipment()
+        selected = None
+        sel = self.tree.selection()
+        if sel:
+            values = self.tree.item(sel[0], "values")
+            selected = self.equipment_repo.get_equipment_by_code(values[0])
         eq_list = self.equipment_repo.get_all_equipment()
         run_equipment_export(self, eq_list, selected_equipment=selected)
 
@@ -327,17 +474,60 @@ class EquipmentView(tk.Frame):
         equipment = self._get_selected_equipment()
         if not equipment:
             return
-
-        confirm = messagebox.askyesno(
+        if not messagebox.askyesno(
             "تایید حذف",
-            f"آیا از حذف تجهیز '{equipment['name']}' اطمینان دارید؟\n\nاین عملیات غیرقابل بازگشت است.",
+            f"آیا از حذف تجهیز «{equipment['name']}» اطمینان دارید؟\n\n"
+            "تمام اطلاعات مرتبط (دستورکارها، بازرسی‌ها و ...) نیز حذف خواهند شد.",
             parent=self
-        )
-
-        if confirm:
-            success, msg = self.equipment_repo.delete_equipment(equipment["id"])
-            if success:
+        ):
+            return
+        try:
+            ok, msg = self.equipment_repo.delete_equipment(equipment["id"])
+            if ok:
                 self._load_data()
                 messagebox.showinfo("موفق", msg, parent=self)
             else:
                 messagebox.showerror("خطا", msg, parent=self)
+        except Exception:
+            messagebox.showerror(
+                "خطا",
+                "نمی‌توان تجهیز را حذف کرد.\nابتدا کلیه دستورکارهای مرتبط را حذف کنید.",
+                parent=self)
+
+    def _delete_selected(self):
+        if not self.is_admin:
+            messagebox.showwarning("دسترسی", "فقط مدیر سیستم می‌تواند تجهیز حذف کند.", parent=self)
+            return
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("انتخاب", "لطفاً حداقل یک تجهیز انتخاب کنید.")
+            return
+        names = [self.tree.item(i, "values")[1] for i in selected if self.tree.item(i, "values")]
+        if not messagebox.askyesno("تایید حذف",
+                                   f"آیا از حذف {len(names)} تجهیز اطمینان دارید؟\n"
+                                   + "، ".join(names)):
+            return
+        errors = []
+        for item in selected:
+            vals = self.tree.item(item, "values")
+            if vals:
+                eq = self.equipment_repo.get_equipment_by_code(vals[0])
+                if eq:
+                    try:
+                        ok, msg = self.equipment_repo.delete_equipment(eq["id"])
+                        if not ok:
+                            errors.append(f"{eq['name']}: {msg}")
+                    except Exception:
+                        errors.append(f"{eq['name']}: دستورکار مرتبط وجود دارد.")
+        self._load_data()
+        if errors:
+            messagebox.showerror("خطا در حذف", "\n".join(errors), parent=self)
+
+    # Global keybinding handlers
+    def handle_enter(self):
+        if not self.can_edit:
+            return
+        self._edit_or_add()
+
+    def handle_delete(self):
+        self._delete_selected()

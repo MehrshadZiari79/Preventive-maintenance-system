@@ -1,217 +1,341 @@
-"""
-Equipment Repository - Data Access Layer for Equipment Management
-"""
-from typing import Optional
+# database/equipment_repository.py
 from datetime import datetime
-from sqlalchemy import func, case
-from database.db import SessionLocal
-from database.models import Equipment
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+from database.models import (
+    Equipment, EquipmentStatus, PMSchedule,
+    Inspection, InspectionTemplate, ProductionLog, InspectionResult
+)
+from database.work_order import WorkOrder
 from utils.logger import log_action
 
 
 class EquipmentRepository:
-    def __init__(self):
-        pass
+    def __init__(self, session_factory):
+        self.Session = session_factory
 
-    def _session(self):
-        return SessionLocal()
-
-    # ─────────────────────────── READ ───────────────────────────
-
+    # ── GET methods ─────────────────────────────────────────────────
     def get_all_equipment(self) -> list[dict]:
-        with self._session() as session:
+        session = self.Session()
+        try:
             equipment = session.query(Equipment).order_by(Equipment.code).all()
-            return [self._to_dict(e) for e in equipment]
+            return [self._to_dict(eq) for eq in equipment]
+        finally:
+            session.close()
 
-    def get_equipment_by_id(self, equipment_id: int) -> Optional[dict]:
-        with self._session() as session:
-            e = session.query(Equipment).filter(Equipment.id == equipment_id).first()
-            return self._to_dict(e) if e else None
+    def get_equipment_by_id(self, equipment_id: int) -> dict:
+        session = self.Session()
+        try:
+            eq = session.query(Equipment).filter(Equipment.id == equipment_id).first()
+            return self._to_dict(eq) if eq else None
+        finally:
+            session.close()
 
-    def get_equipment_by_code(self, code: str) -> Optional[dict]:
-        with self._session() as session:
-            e = session.query(Equipment).filter(Equipment.code == code).first()
-            return self._to_dict(e) if e else None
+    def get_equipment_by_code(self, code: str) -> dict:
+        session = self.Session()
+        try:
+            eq = session.query(Equipment).filter(Equipment.code == code).first()
+            return self._to_dict(eq) if eq else None
+        finally:
+            session.close()
 
     def search_equipment(self, keyword: str) -> list[dict]:
-        with self._session() as session:
-            pattern = f"%{keyword}%"
-            equipment = session.query(Equipment).filter(
-                (Equipment.code.like(pattern)) |
-                (Equipment.name.like(pattern)) |
-                (Equipment.location.like(pattern))
+        session = self.Session()
+        try:
+            q = session.query(Equipment).filter(
+                Equipment.name.contains(keyword) |
+                Equipment.code.contains(keyword) |
+                Equipment.category.contains(keyword) |
+                Equipment.location.contains(keyword)
             ).order_by(Equipment.code).all()
-            return [self._to_dict(e) for e in equipment]
-
-    def filter_by_category(self, category: str) -> list[dict]:
-        with self._session() as session:
-            equipment = session.query(Equipment).filter(
-                Equipment.category == category
-            ).order_by(Equipment.code).all()
-            return [self._to_dict(e) for e in equipment]
-
-    def filter_by_status(self, status: str) -> list[dict]:
-        with self._session() as session:
-            equipment = session.query(Equipment).filter(
-                Equipment.status == status
-            ).order_by(Equipment.code).all()
-            return [self._to_dict(e) for e in equipment]
-
-    def code_exists(self, code: str, exclude_id: Optional[int] = None) -> bool:
-        with self._session() as session:
-            q = session.query(Equipment).filter(Equipment.code == code)
-            if exclude_id:
-                q = q.filter(Equipment.id != exclude_id)
-            return q.first() is not None
-
-    def get_categories(self) -> list[str]:
-        with self._session() as session:
-            result = session.query(Equipment.category).distinct().all()
-            return sorted([r[0] for r in result if r[0]])
-
-    def is_category_used(self, category: str) -> bool:
-        """Check if any equipment uses this category."""
-        with self._session() as session:
-            return session.query(Equipment).filter(Equipment.category == category).first() is not None
-
-    def delete_category(self, category: str) -> tuple[bool, str]:
-        """Delete a category (only if not used)."""
-        if self.is_category_used(category):
-            return False, "این دسته‌بندی در حال استفاده است."
-        # Categories are not stored in a separate table; they are just values in equipment.category.
-        # To "delete" a category, we only need to ensure it is not used. Since it's not used,
-        # it will no longer appear in get_categories().
-        return True, f"دسته‌بندی '{category}' از لیست دسته‌بندی‌ها حذف شد."
+            return [self._to_dict(eq) for eq in q]
+        finally:
+            session.close()
 
     def get_stats(self) -> dict:
-        with self._session() as session:
-            row = session.query(
-                func.count(Equipment.id).label("total"),
-                func.sum(case((Equipment.status == "operational", 1), else_=0)).label("operational"),
-                func.sum(case((Equipment.status == "maintenance", 1), else_=0)).label("maintenance"),
-                func.sum(case((Equipment.status == "breakdown",  1), else_=0)).label("breakdown"),
-                func.sum(case((Equipment.status == "inactive",   1), else_=0)).label("inactive"),
-            ).one()
-            return {
-                "total":       row.total       or 0,
-                "operational": row.operational or 0,
-                "maintenance": row.maintenance or 0,
-                "breakdown":   row.breakdown   or 0,
-                "inactive":    row.inactive    or 0,
-            }
-
-    # ─────────────────────────── WRITE ──────────────────────────
-
-    def create_equipment(self, code: str, name: str, category: str,
-                         manufacturer: str, model: str, serial_number: str,
-                         location: str, installation_date: Optional[datetime],
-                         status: str, specifications: str, notes: str) -> tuple[bool, str]:
-        if self.code_exists(code):
-            return False, "این کد تجهیز قبلاً ثبت شده است."
+        session = self.Session()
         try:
-            with self._session() as session:
-                equipment = Equipment(
-                    code=code,
-                    name=name,
-                    category=category,
-                    manufacturer=manufacturer or None,
-                    model=model or None,
-                    serial_number=serial_number or None,
-                    location=location,
-                    installation_date=installation_date,
-                    status=status,
-                    specifications=specifications or None,
-                    notes=notes or None
-                )
-                session.add(equipment)
-                session.commit()
-                log_action("CREATE", "equipment", equipment.id, f"کد: {code}, نام: {name}")
+            total = session.query(func.count(Equipment.id)).scalar() or 0
+            operational = session.query(func.count(Equipment.id)).filter(
+                Equipment.status == EquipmentStatus.OPERATIONAL.value).scalar() or 0
+            maintenance = session.query(func.count(Equipment.id)).filter(
+                Equipment.status == EquipmentStatus.MAINTENANCE.value).scalar() or 0
+            breakdown = session.query(func.count(Equipment.id)).filter(
+                Equipment.status == EquipmentStatus.BREAKDOWN.value).scalar() or 0
+            inactive = session.query(func.count(Equipment.id)).filter(
+                Equipment.status == EquipmentStatus.INACTIVE.value).scalar() or 0
+            return {
+                "total": total,
+                "operational": operational,
+                "maintenance": maintenance,
+                "breakdown": breakdown,
+                "inactive": inactive,
+            }
+        finally:
+            session.close()
+
+    # ── CRUD methods ────────────────────────────────────────────────
+    def create_equipment(self, code, name, category, manufacturer, model,
+                         serial_number, location, installation_date, status,
+                         specifications, notes,
+                         length=None, width=None, diameter=None,
+                         height=None, volume=None, weight=None):
+        session = self.Session()
+        try:
+            eq = Equipment(
+                code=code, name=name, category=category,
+                manufacturer=manufacturer, model=model,
+                serial_number=serial_number, location=location,
+                installation_date=installation_date, status=status,
+                specifications=specifications, notes=notes,
+                length=length, width=width, diameter=diameter,
+                height=height, volume=volume, weight=weight,
+            )
+            session.add(eq)
+            session.commit()
+            log_action("CREATE", "equipment", eq.id, f"کد: {code}, نام: {name}")
             return True, "تجهیز با موفقیت ثبت شد."
         except Exception as e:
-            return False, f"خطای پایگاه داده: {e}"
+            session.rollback()
+            return False, f"خطا: {str(e)}"
+        finally:
+            session.close()
 
-    def update_equipment(self, equipment_id: int, code: str, name: str,
-                         category: str, manufacturer: str, model: str,
-                         serial_number: str, location: str,
-                         installation_date: Optional[datetime], status: str,
-                         specifications: str, notes: str) -> tuple[bool, str]:
-        if self.code_exists(code, exclude_id=equipment_id):
-            return False, "این کد تجهیز قبلاً ثبت شده است."
+    def update_equipment(self, equipment_id, code, name, category, manufacturer,
+                         model, serial_number, location, installation_date,
+                         status, specifications, notes,
+                         length=None, width=None, diameter=None,
+                         height=None, volume=None, weight=None):
+        session = self.Session()
         try:
-            with self._session() as session:
-                equipment = session.query(Equipment).filter(
-                    Equipment.id == equipment_id
-                ).first()
-                if not equipment:
-                    return False, "تجهیز یافت نشد."
-
-                equipment.code             = code
-                equipment.name             = name
-                equipment.category         = category
-                equipment.manufacturer     = manufacturer or None
-                equipment.model            = model or None
-                equipment.serial_number    = serial_number or None
-                equipment.location         = location
-                equipment.installation_date = installation_date
-                equipment.status           = status
-                equipment.specifications   = specifications or None
-                equipment.notes            = notes or None
-                equipment.updated_at       = datetime.utcnow()
-
-                session.commit()
-                log_action("UPDATE", "equipment", equipment_id, f"کد: {code}, نام: {name}")
-            return True, "اطلاعات تجهیز بروزرسانی شد."
+            eq = session.query(Equipment).filter(Equipment.id == equipment_id).first()
+            if not eq:
+                return False, "تجهیز یافت نشد."
+            eq.code = code
+            eq.name = name
+            eq.category = category
+            eq.manufacturer = manufacturer
+            eq.model = model
+            eq.serial_number = serial_number
+            eq.location = location
+            eq.installation_date = installation_date
+            eq.status = status
+            eq.specifications = specifications
+            eq.notes = notes
+            eq.length = length
+            eq.width = width
+            eq.diameter = diameter
+            eq.height = height
+            eq.volume = volume
+            eq.weight = weight
+            eq.updated_at = datetime.now()
+            session.commit()
+            log_action("UPDATE", "equipment", equipment_id, f"کد: {code}")
+            return True, "تجهیز بروزرسانی شد."
         except Exception as e:
-            return False, f"خطای پایگاه داده: {e}"
+            session.rollback()
+            return False, f"خطا: {str(e)}"
+        finally:
+            session.close()
 
-    def update_status(self, equipment_id: int, new_status: str) -> tuple[bool, str]:
+    def delete_equipment(self, equipment_id):
+        """
+        Delete equipment and ALL related data safely, in order:
+          1. Inspection results (child of inspections)
+          2. Inspections
+          3. Work orders
+          4. PM schedules
+          5. Production logs
+          6. Inspection templates (set equipment_id to NULL)
+          7. The equipment itself
+        """
+        session = self.Session()
         try:
-            with self._session() as session:
-                equipment = session.query(Equipment).filter(
-                    Equipment.id == equipment_id
-                ).first()
-                if not equipment:
-                    return False, "تجهیز یافت نشد."
-                equipment.status     = new_status
-                equipment.updated_at = datetime.utcnow()
-                session.commit()
-                log_action("UPDATE_STATUS", "equipment", equipment_id, f"وضعیت جدید: {new_status}")
-            return True, "وضعیت تجهیز تغییر کرد."
-        except Exception as e:
-            return False, f"خطای پایگاه داده: {e}"
+            equipment = session.query(Equipment).filter(Equipment.id == equipment_id).first()
+            if not equipment:
+                return False, "تجهیز یافت نشد."
 
-    def delete_equipment(self, equipment_id: int) -> tuple[bool, str]:
+            # 1. Delete inspection results for all inspections of this equipment
+            insp_ids = session.query(Inspection.id).filter(
+                Inspection.equipment_id == equipment_id
+            ).all()
+            if insp_ids:
+                ids_list = [i[0] for i in insp_ids]
+                session.query(InspectionResult).filter(
+                    InspectionResult.inspection_id.in_(ids_list)
+                ).delete(synchronize_session=False)
+
+            # 2. Now delete the inspections themselves
+            session.query(Inspection).filter(
+                Inspection.equipment_id == equipment_id
+            ).delete(synchronize_session=False)
+
+            # 3. Delete work orders belonging to this equipment
+            session.query(WorkOrder).filter(
+                WorkOrder.equipment_id == equipment_id
+            ).delete(synchronize_session=False)
+
+            # 4. Delete PM schedules belonging to this equipment
+            session.query(PMSchedule).filter(
+                PMSchedule.equipment_id == equipment_id
+            ).delete(synchronize_session=False)
+
+            # 5. Delete production logs for this equipment
+            session.query(ProductionLog).filter(
+                ProductionLog.equipment_id == equipment_id
+            ).delete(synchronize_session=False)
+
+            # 6. Set equipment_id to NULL for inspection templates
+            session.query(InspectionTemplate).filter(
+                InspectionTemplate.equipment_id == equipment_id
+            ).update({InspectionTemplate.equipment_id: None}, synchronize_session=False)
+
+            # 7. Finally, delete the equipment
+            session.delete(equipment)
+            session.commit()
+
+            log_action("DELETE", "equipment", equipment_id,
+                       f"کد: {equipment.code}, نام: {equipment.name}")
+            return True, "تجهیز و تمام اطلاعات مرتبط با موفقیت حذف شد."
+        except Exception as e:
+            session.rollback()
+            return False, f"خطای پایگاه داده: {str(e)}"
+        finally:
+            session.close()
+
+    # ── Other helpers ───────────────────────────────────────────────
+    def update_status(self, equipment_id, new_status):
+        session = self.Session()
         try:
-            with self._session() as session:
-                equipment = session.query(Equipment).filter(
-                    Equipment.id == equipment_id
-                ).first()
-                if not equipment:
-                    return False, "تجهیز یافت نشد."
-                session.delete(equipment)
-                session.commit()
-                log_action("DELETE", "equipment", equipment_id, "")
-            return True, "تجهیز حذف شد."
+            eq = session.query(Equipment).filter(Equipment.id == equipment_id).first()
+            if not eq:
+                return False, "تجهیز یافت نشد."
+            eq.status = new_status
+            eq.updated_at = datetime.now()
+            session.commit()
+            log_action("STATUS", "equipment", equipment_id, new_status)
+            return True, "وضعیت با موفقیت تغییر کرد."
         except Exception as e:
-            return False, f"خطای پایگاه داده: {e}"
+            session.rollback()
+            return False, f"خطا: {str(e)}"
+        finally:
+            session.close()
 
-    # ─────────────────────────── HELPER ─────────────────────────
+    def get_categories(self) -> list[str]:
+        session = self.Session()
+        try:
+            rows = session.query(Equipment.category).distinct().all()
+            return [row[0] for row in rows if row[0]]
+        finally:
+            session.close()
+
+    def is_category_used(self, category):
+        session = self.Session()
+        try:
+            count = session.query(Equipment).filter(Equipment.category == category).count()
+            return count > 0
+        finally:
+            session.close()
+
+    def delete_category(self, category):
+        session = self.Session()
+        try:
+            if self.is_category_used(category):
+                return False, f"دسته‌بندی '{category}' در حال استفاده است."
+            session.query(Equipment).filter(Equipment.category == category).delete()
+            session.commit()
+            return True, f"دسته‌بندی '{category}' حذف شد."
+        except Exception as e:
+            session.rollback()
+            return False, str(e)
+        finally:
+            session.close()
+
+    def rename_category(self, old_name: str, new_name: str) -> tuple[bool, str]:
+        """Rename a category in all equipment rows that use it."""
+        session = self.Session()
+        try:
+            if old_name == new_name:
+                return True, "نام تغییری نکرد."
+            session.query(Equipment).filter(Equipment.category == old_name).update(
+                {Equipment.category: new_name}, synchronize_session=False)
+            session.commit()
+            log_action("RENAME_CATEGORY", "equipment", 0, f"{old_name} → {new_name}")
+            return True, f"دسته‌بندی '{old_name}' به '{new_name}' تغییر یافت."
+        except Exception as e:
+            session.rollback()
+            return False, f"خطا: {str(e)}"
+        finally:
+            session.close()
+
+    # ── Location management ─────────────────────────────────────────
+    def get_locations(self) -> list[str]:
+        session = self.Session()
+        try:
+            rows = session.query(Equipment.location).distinct().all()
+            return [row[0] for row in rows if row[0]]
+        finally:
+            session.close()
+
+    def is_location_used(self, location: str) -> bool:
+        session = self.Session()
+        try:
+            count = session.query(Equipment).filter(Equipment.location == location).count()
+            return count > 0
+        finally:
+            session.close()
+
+    def delete_location(self, location: str) -> tuple[bool, str]:
+        session = self.Session()
+        try:
+            if self.is_location_used(location):
+                return False, f"موقعیت '{location}' در حال استفاده است."
+            return True, f"موقعیت '{location}' حذف شد."
+        except Exception as e:
+            session.rollback()
+            return False, str(e)
+        finally:
+            session.close()
+
+    def rename_location(self, old_name: str, new_name: str) -> tuple[bool, str]:
+        """Rename a location in all equipment rows that use it."""
+        session = self.Session()
+        try:
+            if old_name == new_name:
+                return True, "نام تغییری نکرد."
+            session.query(Equipment).filter(Equipment.location == old_name).update(
+                {Equipment.location: new_name}, synchronize_session=False)
+            session.commit()
+            log_action("RENAME_LOCATION", "equipment", 0, f"{old_name} → {new_name}")
+            return True, f"موقعیت '{old_name}' به '{new_name}' تغییر یافت."
+        except Exception as e:
+            session.rollback()
+            return False, f"خطا: {str(e)}"
+        finally:
+            session.close()
 
     @staticmethod
-    def _to_dict(e: Equipment) -> dict:
+    def _to_dict(eq: Equipment):
         return {
-            "id":                e.id,
-            "code":              e.code,
-            "name":              e.name,
-            "category":          e.category,
-            "manufacturer":      e.manufacturer or "",
-            "model":             e.model or "",
-            "serial_number":     e.serial_number or "",
-            "location":          e.location,
-            "installation_date": e.installation_date.strftime("%Y-%m-%d") if e.installation_date else "",
-            "status":            e.status,
-            "specifications":    e.specifications or "",
-            "notes":             e.notes or "",
-            "created_at":        e.created_at.strftime("%Y-%m-%d %H:%M") if e.created_at else "",
-            "updated_at":        e.updated_at.strftime("%Y-%m-%d %H:%M") if e.updated_at else "",
+            "id": eq.id,
+            "code": eq.code,
+            "name": eq.name,
+            "category": eq.category,
+            "manufacturer": eq.manufacturer or "",
+            "model": eq.model or "",
+            "serial_number": eq.serial_number or "",
+            "location": eq.location or "",
+            "installation_date": eq.installation_date.strftime("%Y-%m-%d") if eq.installation_date else "",
+            "status": eq.status,
+            "specifications": eq.specifications or "",
+            "notes": eq.notes or "",
+            "criticality_level": eq.criticality_level or "",
+            "length": eq.length,
+            "width": eq.width,
+            "diameter": eq.diameter,
+            "height": eq.height,
+            "volume": eq.volume,
+            "weight": eq.weight,
+            "created_at": eq.created_at.strftime("%Y-%m-%d %H:%M:%S") if eq.created_at else "",
+            "updated_at": eq.updated_at.strftime("%Y-%m-%d %H:%M:%S") if eq.updated_at else "",
         }

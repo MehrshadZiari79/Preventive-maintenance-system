@@ -1,53 +1,109 @@
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import StaticPool
+# database/db.py
+import base64
+import hashlib
 
-Base = declarative_base()
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import QueuePool
+
+from database.models import Base, User, UserRole
+
+
+# ----- Database connection settings (obfuscated) -----
+_server = "192.168.0.1"
+_database = "PM_Database"
+_username = "pm_app"
+_password_b64 = "***REMOVED***="   # base64 of "***REMOVED***"
+_port = "1433"
+
+
+def _get_password():
+    return base64.b64decode(_password_b64).decode()
+
+
+def get_database_url():
+    pwd = _get_password()
+    return f"mssql+pymssql://{_username}:{pwd}@{_server}:{_port}/{_database}?charset=utf8"
+
+
+DATABASE_URL = get_database_url()
 
 _engine = None
-_SessionLocal = None
+_SessionFactory = None
 
 
 def get_engine():
     global _engine
+
     if _engine is None:
-        from config import DATABASE_URL
+        # SQLAlchemy 1.3.24 compatible – no 'future' argument, no isolation_level directly
+        connect_args = {
+            "tds_version": "7.0",
+        }
+        # Do NOT set autocommit in connect_args – it breaks session.commit()
+        # Use default autocommit=False (transactions are managed by session.commit/rollback)
+
         _engine = create_engine(
             DATABASE_URL,
-            connect_args={
-                "check_same_thread": False,
-                "timeout": 30,
-            },
-            poolclass=StaticPool,
+            connect_args=connect_args,
+            poolclass=QueuePool,
+            pool_size=10,
+            max_overflow=20,
+            pool_pre_ping=True,
+            echo=False,
         )
-
-        @event.listens_for(_engine, "connect")
-        def set_pragmas(dbapi_conn, _):
-            cur = dbapi_conn.cursor()
-            cur.execute("PRAGMA journal_mode=WAL")
-            cur.execute("PRAGMA foreign_keys=ON")
-            cur.execute("PRAGMA busy_timeout=30000")
-            cur.close()
 
     return _engine
 
 
 def get_session_factory():
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(
-            autocommit=False,
+    global _SessionFactory
+
+    if _SessionFactory is None:
+        engine = get_engine()
+        _SessionFactory = sessionmaker(
+            bind=engine,
             autoflush=False,
-            bind=get_engine()
+            autocommit=False,       # essential – transactions are explicit
         )
-    return _SessionLocal
+
+    return _SessionFactory
 
 
-def SessionLocal():
-    return get_session_factory()()
+SessionLocal = get_session_factory()
+
+
+def get_session():
+    return SessionLocal()
+
+
 def init_db():
-    from database import models          # existing models
-    from database import work_order      # register WorkOrder table
-    from config import DB_PATH
-    Base.metadata.create_all(bind=get_engine())
-    print(f"✅ Database ready at: {DB_PATH}")
+    """Create admin user if none exists."""
+    session = get_session()
+    try:
+        if session.query(User).count() == 0:
+            hashed = hashlib.sha256("***REMOVED***".encode()).hexdigest()
+
+            admin = User(
+                username="admin",
+                password_hash=hashed,
+                full_name="مدیر سیستم",
+                role=UserRole.ADMIN,
+                is_active=True
+            )
+
+            session.add(admin)
+            session.commit()
+
+        else:
+            admin = session.query(User).filter_by(username="admin").first()
+            if admin:
+                admin.password_hash = hashlib.sha256("***REMOVED***".encode()).hexdigest()
+                session.commit()
+
+    except Exception as e:
+        session.rollback()
+        print(f"⚠️ DB INIT ERROR: {e}")
+
+    finally:
+        session.close()

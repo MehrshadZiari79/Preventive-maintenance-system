@@ -1,43 +1,40 @@
 # views/users_view.py
-"""
-Users View - Main User Management Panel
-"""
 import tkinter as tk
 from tkinter import ttk, messagebox
 from database.user_repository import UserRepository
 from views.user_dialog import UserDialog
+from views.role_manager_dialog import RoleManagerDialog   # new import
 from utils.theme import (
     NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
     TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
     FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
 )
-
+from views.role_manager_dialog import RoleManagerDialog
+BG = GRAY_BG
+PRIMARY = NAVY
 
 class UsersView(tk.Frame):
-    """Full user management panel embedded in the main window."""
-
     COLUMNS = {
-        "id":         ("#",              50,  "center"),
-        "username":   ("نام کاربری",    140,  "center"),
-        "full_name":  ("نام کامل",      180,  "center"),
-        "role":       ("نقش",            90,  "center"),
-        "is_active":  ("وضعیت",          80,  "center"),
-        "created_at": ("تاریخ ثبت",     140,  "center"),
+        "id":              ("#",              50,  "center"),
+        "username":        ("نام کاربری",    140,  "center"),
+        "full_name":       ("نام کامل",      180,  "center"),
+        "role":            ("نقش",            90,  "center"),
+        "personnel_code":  ("شماره پرسنلی",  120,  "center"),
+        "service_unit":    ("واحد خدمت",     120,  "center"),
+        "is_active":       ("وضعیت",          80,  "center"),
+        "created_at":      ("تاریخ ثبت",     140,  "center"),
     }
 
     def __init__(self, parent, user_repo: UserRepository, current_user: dict):
-        super().__init__(parent, bg=GRAY_BG)
-        # Only admin can access this view
+        super().__init__(parent, bg=BG)
         if current_user["role"] != "admin":
-            messagebox.showerror("خطا", "دسترسی غیرمجاز. فقط مدیر سیستم می‌تواند کاربران را مدیریت کند.", parent=parent)
+            messagebox.showerror("خطا", "دسترسی غیرمجاز.", parent=parent)
             self.destroy()
             return
         self.user_repo = user_repo
         self.current_user = current_user
         self._build_ui()
         self.load_users()
-
-    # ──────────────────────── UI ────────────────────────────────
 
     def _build_ui(self):
         self._build_header()
@@ -46,80 +43,64 @@ class UsersView(tk.Frame):
         self._build_statusbar()
 
     def _build_header(self):
-        header = tk.Frame(self, bg=NAVY, height=56)
+        header = tk.Frame(self, bg=PRIMARY, height=56)
         header.pack(fill="x")
         header.pack_propagate(False)
-        tk.Label(header, text="👥  مدیریت کاربران",
-                 bg=NAVY, fg=WHITE, font=FONT_TITLE).pack(expand=True)
+        tk.Label(header, text="👥  مدیریت کاربران", bg=PRIMARY, fg=WHITE, font=FONT_TITLE).pack(expand=True)
 
     def _build_toolbar(self):
         bar = tk.Frame(self, bg=WHITE, pady=8, padx=12)
         bar.pack(fill="x")
-
-        # Search
         tk.Label(bar, text="🔍", bg=WHITE, font=FONT_NORMAL).pack(side="right", padx=(0,4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._on_search())
-        search_entry = ttk.Entry(bar, textvariable=self.search_var,
-                                 width=22, font=FONT_NORMAL,
-                                 justify="right")
-        search_entry.pack(side="right", ipady=3)
+        ttk.Entry(bar, textvariable=self.search_var, width=22, font=FONT_NORMAL, justify="right").pack(side="right", ipady=3)
 
-        # Buttons (admin only)
         if self.current_user["role"] == "admin":
-            ttk.Button(bar, text="➕ کاربر جدید",
-                       command=self._add_user).pack(side="left", padx=(0,6))
-            ttk.Button(bar, text="✏️ ویرایش",
-                       command=self._edit_user).pack(side="left", padx=(0,6))
-            ttk.Button(bar, text="🔄 فعال/غیرفعال",
-                       command=self._toggle_user).pack(side="left", padx=(0,6))
-            ttk.Button(bar, text="🗑️ حذف",
-                       command=self._delete_user).pack(side="left")
+            ttk.Button(bar, text="➕ کاربر جدید", command=self._add_user).pack(side="left", padx=(0,6))
+            ttk.Button(bar, text="✏️ ویرایش", command=self._edit_user).pack(side="left", padx=(0,6))
+            ttk.Button(bar, text="🔄 فعال/غیرفعال", command=self._toggle_user).pack(side="left", padx=(0,6))
+            ttk.Button(bar, text="🗑️ حذف", command=self._delete_user).pack(side="left")
+            ttk.Button(bar, text="👤 مدیریت نقش‌ها", command=self._manage_roles).pack(side="left", padx=(12,0))
+        ttk.Button(bar, text="🔃 بازخوانی", command=self.load_users).pack(side="left", padx=(12,0))
 
-        ttk.Button(bar, text="🔃 بازخوانی",
-                   command=self.load_users).pack(side="left", padx=(12,0))
-
+    def _manage_roles(self):
+        dlg = RoleManagerDialog(self, callback=lambda: self.load_users())
+        self.wait_window(dlg)
+        self.load_users()
     def _build_table(self):
-        container = tk.Frame(self, bg=GRAY_BG)
+        container = tk.Frame(self, bg=BG)
         container.pack(fill="both", expand=True, padx=12, pady=8)
 
         cols = list(self.COLUMNS.keys())
-        self.tree = ttk.Treeview(container, columns=cols,
-                                 show="headings", selectmode="browse")
-
+        self.tree = ttk.Treeview(container, columns=cols, show="headings", selectmode="browse")
         for col, (heading, width, anchor) in self.COLUMNS.items():
-            self.tree.heading(col, text=heading,
-                              command=lambda c=col: self._sort(c))
+            self.tree.heading(col, text=heading, command=lambda c=col: self._sort(c))
             self.tree.column(col, width=width, anchor=anchor, minwidth=40)
 
-        # Scrollbars
-        vsb = ttk.Scrollbar(container, orient="vertical",
-                            command=self.tree.yview)
-        hsb = ttk.Scrollbar(container, orient="horizontal",
-                            command=self.tree.xview)
-        self.tree.configure(yscrollcommand=vsb.set,
-                            xscrollcommand=hsb.set)
-
+        vsb = ttk.Scrollbar(container, orient="vertical", command=self.tree.yview)
+        hsb = ttk.Scrollbar(container, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
         container.rowconfigure(0, weight=1)
         container.columnconfigure(0, weight=1)
 
-        # Row tags
+        self.tree.configure(selectmode='extended')
+        self.tree.bind("<Delete>", lambda e: self._delete_selected())
+        self.tree.bind("<F2>",      lambda e: self._edit_user())
+        self.tree.bind("<Control-n>", lambda e: self._add_user())
+
         self.tree.tag_configure("active",   background="#E6F4EA")
         self.tree.tag_configure("inactive", background="#FCE8E6")
-        self.tree.tag_configure("admin_row", foreground=NAVY)
-
+        self.tree.tag_configure("admin_row", foreground=PRIMARY)
         self.tree.bind("<Double-1>", lambda _: self._edit_user())
 
     def _build_statusbar(self):
         self.status_var = tk.StringVar(value="در حال بارگذاری...")
-        tk.Label(self, textvariable=self.status_var,
-                 bg=GRAY_BORDER, fg=TEXT_LIGHT, anchor="e",
-                 font=FONT_SMALL, padx=10).pack(fill="x", side="bottom")
-
-    # ──────────────────────── DATA ──────────────────────────────
+        tk.Label(self, textvariable=self.status_var, bg=GRAY_BORDER, fg=TEXT_LIGHT,
+                 anchor="e", font=FONT_SMALL, padx=10).pack(fill="x", side="bottom")
 
     def load_users(self, users: list = None):
         self.tree.delete(*self.tree.get_children())
@@ -129,31 +110,45 @@ class UsersView(tk.Frame):
             tag = "active" if u["is_active"] else "inactive"
             if u["role"] == "admin":
                 tag = "admin_row"
-            created = str(u.get("created_at", ""))[:10]
+            created_dt = u.get("created_at")
+            if created_dt and hasattr(created_dt, 'strftime'):
+                created_str = created_dt.strftime("%Y-%m-%d")
+            elif isinstance(created_dt, str):
+                created_str = created_dt[:10]
+            else:
+                created_str = "—"
             self.tree.insert("", "end", iid=str(u["id"]),
                              values=(u["id"], u["username"], u["full_name"],
-                                     u["role"], status, created),
+                                     u["role"], u.get("personnel_code", ""),
+                                     u.get("service_unit", ""), status, created_str),
                              tags=(tag,))
-        count = len(data)
-        self.status_var.set(f"تعداد کاربران: {count}")
+        self.status_var.set(f"تعداد کاربران: {len(data)}")
+
+    def _delete_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo("انتخاب", "لطفاً یک کاربر انتخاب کنید.")
+            return
+        if self.current_user["id"] in [int(i) for i in selected]:
+            messagebox.showwarning("خطا", "نمی‌توانید حساب خود را حذف کنید.")
+            return
+        if not messagebox.askyesno("حذف", f"آیا از حذف {len(selected)} کاربر اطمینان دارید؟"):
+            return
+        for uid in selected:
+            self.user_repo.delete_user(int(uid))
+        self.load_users()
 
     def _on_search(self):
         keyword = self.search_var.get().strip()
-        if keyword:
-            results = self.user_repo.search_users(keyword)
-        else:
-            results = self.user_repo.get_all_users()
+        results = self.user_repo.search_users(keyword) if keyword else self.user_repo.get_all_users()
         self.load_users(results)
 
     def _sort(self, col: str):
-        items = [(self.tree.set(k, col), k)
-                 for k in self.tree.get_children("")]
+        items = [(self.tree.set(k, col), k) for k in self.tree.get_children("")]
         items.sort(reverse=getattr(self, "_sort_reverse", False))
         for index, (_, k) in enumerate(items):
             self.tree.move(k, "", index)
         self._sort_reverse = not getattr(self, "_sort_reverse", False)
-
-    # ──────────────────────── ACTIONS ───────────────────────────
 
     def _selected_id(self) -> int | None:
         sel = self.tree.selection()
@@ -172,8 +167,7 @@ class UsersView(tk.Frame):
         user_data = self.user_repo.get_user_by_id(uid)
         if not user_data:
             return
-        dlg = UserDialog(self, self.user_repo, self.current_user,
-                         user_data=user_data)
+        dlg = UserDialog(self, self.user_repo, self.current_user, user_data=user_data)
         if dlg.result:
             self.load_users()
 
@@ -200,11 +194,7 @@ class UsersView(tk.Frame):
             messagebox.showwarning("خطا", "نمی‌توانید حساب خود را حذف کنید.")
             return
         user = self.user_repo.get_user_by_id(uid)
-        confirm = messagebox.askyesno(
-            "تأیید حذف",
-            f"آیا از حذف کاربر «{user['username']}» مطمئن هستید؟\n"
-            "این عمل قابل بازگشت نیست.",
-        )
+        confirm = messagebox.askyesno("تأیید حذف", f"آیا از حذف کاربر «{user['username']}» مطمئن هستید؟\nاین عمل قابل بازگشت نیست.")
         if confirm:
             ok, msg = self.user_repo.delete_user(uid)
             if ok:

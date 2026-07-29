@@ -3,35 +3,29 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 from database.work_order_repository import WorkOrderRepository
-from database.work_order import WorkOrderType, WorkOrderPriority
+from database.work_order import WorkOrderType
 from database.equipment_repository import EquipmentRepository
 from auth.auth_manager import AuthManager
-# In views/emergency_work_order_dialog.py, at the top with other imports:
+from tkcalendar import DateEntry
 from database.work_order import WorkOrder
+from database.db import SessionLocal
+from views.searchable_combobox import SearchableCombobox
 
-BG = "#F0F4F8"
-WHITE = "#FFFFFF"
-PRIMARY = "#1A73E8"
-TEXT = "#202124"
-SUBTLE = "#5F6368"
-BORDER = "#DADCE0"
-DANGER = "#EA4335"
+from utils.theme import (
+    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+)
 
-FONT_TITLE = ("Tahoma", 12, "bold")
-FONT_NORMAL = ("Tahoma", 10)
-FONT_BTN = ("Tahoma", 10, "bold")
-
+BG = GRAY_BG
+CARD_BG = WHITE
+CARD_BORDER = GRAY_BORDER
 
 class EmergencyWorkOrderDialog(tk.Toplevel):
     def __init__(self, parent, equipment_repo=None, preselected_equipment=None):
-        """
-        :param parent: parent widget
-        :param equipment_repo: optional EquipmentRepository to load equipment list
-        :param preselected_equipment: optional equipment dict (with 'id' and 'name') to preselect
-        """
         super().__init__(parent)
         self.parent = parent
-        self.equipment_repo = equipment_repo or EquipmentRepository()
+        self.equipment_repo = equipment_repo or EquipmentRepository(SessionLocal)
         self.preselected = preselected_equipment
         self.result = False
 
@@ -42,7 +36,7 @@ class EmergencyWorkOrderDialog(tk.Toplevel):
         self.transient(parent)
 
         self._build_ui()
-        self._center_window(450, 550)
+        self._center_window(550, 700)
 
     def _center_window(self, w, h):
         self.update_idletasks()
@@ -51,74 +45,102 @@ class EmergencyWorkOrderDialog(tk.Toplevel):
         self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _build_ui(self):
-        # Title
-        tk.Label(self, text="🚨 دستور کار اضطراری", font=FONT_TITLE,
-                 bg=BG, fg=DANGER).pack(pady=(20, 10))
+        # ── Header ──────────────────────────────────────────────
+        header = tk.Frame(self, bg=NAVY, height=55)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Label(header, text="🚨 دستور کار اضطراری", font=FONT_TITLE,
+                 bg=NAVY, fg=WHITE).pack(pady=12)
 
-        main_frame = tk.Frame(self, bg=WHITE, highlightbackground=BORDER, highlightthickness=1)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=10, ipadx=20, ipady=15)
+        # ── Scrollable area ────────────────────────────────────
+        canvas = tk.Canvas(self, bg=BG, highlightthickness=0)
+        vsb = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable = tk.Frame(canvas, bg=BG)
 
-        # Equipment selection (if not preselected)
+        scrollable.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+
+        canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        vsb.pack(side="right", fill="y")
+
+        # ── Form inside scrollable ─────────────────────────────
+        main_card = tk.Frame(scrollable, bg=CARD_BORDER)
+        main_card.pack(fill="both", expand=True, padx=20, pady=15)
+        main_frame = tk.Frame(main_card, bg=CARD_BG)
+        main_frame.pack(fill="both", expand=True, padx=1, pady=1)
+
         row = 0
+
+        # Equipment
         if not self.preselected:
-            tk.Label(main_frame, text="تجهیز:", font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=0, sticky="e", padx=5, pady=8)
-            self.equipment_var = tk.StringVar()
+            tk.Label(main_frame, text="تجهیز:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=0, sticky="e", padx=5, pady=8)
             equipment_list = self.equipment_repo.get_all_equipment()
             eq_names = [f"{eq['code']} - {eq['name']}" for eq in equipment_list]
-            self.eq_combo = ttk.Combobox(main_frame, textvariable=self.equipment_var, values=eq_names,
-                                         font=FONT_NORMAL, state="readonly", width=35)
-            self.eq_combo.grid(row=row, column=1, padx=5, pady=8, sticky="w")
-            # Map display string to equipment id
+            self.equipment_combo = SearchableCombobox(main_frame, font=FONT_NORMAL, state="normal", width=35)
+            self.equipment_combo.set_completion_list(eq_names)
+            self.equipment_combo.grid(row=row, column=1, padx=5, pady=8, sticky="w")
             self.eq_map = {f"{eq['code']} - {eq['name']}": eq['id'] for eq in equipment_list}
             row += 1
         else:
-            # Show preselected equipment as label
-            tk.Label(main_frame, text="تجهیز:", font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=0, sticky="e", padx=5, pady=8)
-            tk.Label(main_frame, text=self.preselected['name'], font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=1, padx=5, pady=8, sticky="w")
+            tk.Label(main_frame, text="تجهیز:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=0, sticky="e", padx=5, pady=8)
+            tk.Label(main_frame, text=self.preselected['name'], font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=1, padx=5, pady=8, sticky="w")
             self.selected_equipment_id = self.preselected['id']
             row += 1
 
         # Title
-        tk.Label(main_frame, text="عنوان:", font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=0, sticky="e", padx=5, pady=8)
+        tk.Label(main_frame, text="عنوان *:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=0, sticky="e", padx=5, pady=8)
         self.title_entry = tk.Entry(main_frame, font=FONT_NORMAL, width=40)
         self.title_entry.grid(row=row, column=1, padx=5, pady=8, sticky="w")
         row += 1
 
         # Description
-        tk.Label(main_frame, text="شرح:", font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=0, sticky="ne", padx=5, pady=8)
+        tk.Label(main_frame, text="شرح:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=0, sticky="ne", padx=5, pady=8)
         self.desc_text = tk.Text(main_frame, font=FONT_NORMAL, width=40, height=5, wrap="word")
         self.desc_text.grid(row=row, column=1, padx=5, pady=8, sticky="w")
         row += 1
 
-        # Priority
-        tk.Label(main_frame, text="اولویت:", font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=0, sticky="e", padx=5, pady=8)
-        self.priority_var = tk.StringVar(value="urgent")
-        priority_frame = tk.Frame(main_frame, bg=WHITE)
+        # Priority (radio buttons)
+        tk.Label(main_frame, text="اولویت:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=0, sticky="e", padx=5, pady=8)
+        priority_frame = tk.Frame(main_frame, bg=CARD_BG)
         priority_frame.grid(row=row, column=1, padx=5, pady=8, sticky="w")
-        priorities = [("فوری", "urgent"), ("بالا", "high"), ("متوسط", "medium"), ("پایین", "low")]
-        for text, val in priorities:
+        self.priority_var = tk.StringVar(value="URGENT")
+        for text, val in [("کم", "LOW"), ("متوسط", "MEDIUM"), ("بالا", "HIGH"), ("فوری", "URGENT")]:
             tk.Radiobutton(priority_frame, text=text, variable=self.priority_var, value=val,
-                           bg=WHITE, font=FONT_NORMAL).pack(side="right", padx=10)
+                           bg=CARD_BG, font=FONT_NORMAL).pack(side="right", padx=10)
         row += 1
 
-        # Reported by (current user)
+        # Deadline
+        tk.Label(main_frame, text="تاریخ سررسید (ددلاین):", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=0, sticky="e", padx=5, pady=8)
+        self.deadline_date = DateEntry(main_frame, width=20, date_pattern='yyyy-mm-dd',
+                                       background=NAVY, foreground=WHITE,
+                                       headersbackground=NAVY, headersforeground=WHITE)
+        self.deadline_date.grid(row=row, column=1, padx=5, pady=8, sticky="w")
+        self.deadline_date.set_date(datetime.now())
+        row += 1
+
+        # Reporter (current user)
         current_user = AuthManager.get_current_user()
-        tk.Label(main_frame, text="گزارش دهنده:", font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=0, sticky="e", padx=5, pady=8)
-        tk.Label(main_frame, text=current_user.full_name, font=FONT_NORMAL, bg=WHITE, fg=TEXT).grid(row=row, column=1, padx=5, pady=8, sticky="w")
+        tk.Label(main_frame, text="گزارش دهنده:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=0, sticky="e", padx=5, pady=8)
+        tk.Label(main_frame, text=current_user.full_name, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT_DARK).grid(row=row, column=1, padx=5, pady=8, sticky="w")
         row += 1
 
-        # Buttons
-        btn_frame = tk.Frame(main_frame, bg=WHITE)
+        # ── Buttons (inside scrollable, at the end) ─────────────
+        btn_frame = tk.Frame(main_frame, bg=CARD_BG)
         btn_frame.grid(row=row, column=0, columnspan=2, pady=20)
-        tk.Button(btn_frame, text="ثبت", font=FONT_BTN, bg=PRIMARY, fg=WHITE,
-                  relief="flat", cursor="hand2", command=self._save, padx=20, pady=8).pack(side="right", padx=10)
-        tk.Button(btn_frame, text="انصراف", font=FONT_BTN, bg=BORDER, fg=TEXT,
-                  relief="flat", cursor="hand2", command=self.destroy, padx=20, pady=8).pack(side="right")
+        tk.Button(btn_frame, text="ثبت", font=FONT_NORMAL,
+                  bg=NAVY, fg=WHITE, relief="flat", cursor="hand2",
+                  command=self._save, padx=20, pady=8).pack(side="right", padx=10)
+        tk.Button(btn_frame, text="انصراف", font=FONT_NORMAL,
+                  bg=NAVY_LIGHT, fg=WHITE, relief="flat", cursor="hand2",
+                  command=self.destroy, padx=20, pady=8).pack(side="right")
 
     def _save(self):
-        # Get equipment id
-        if hasattr(self, 'eq_combo'):
-            selection = self.equipment_var.get()
+        if not self.preselected:
+            selection = self.equipment_combo.get()
             if not selection:
                 messagebox.showerror("خطا", "لطفاً تجهیز را انتخاب کنید.", parent=self)
                 return
@@ -139,8 +161,11 @@ class EmergencyWorkOrderDialog(tk.Toplevel):
         current_user = AuthManager.get_current_user()
         emergency_reported_by = current_user.full_name
 
-        # Create work order
-        wo_repo = WorkOrderRepository()
+        deadline = None
+        if self.deadline_date.get():
+            deadline = datetime.strptime(self.deadline_date.get(), "%Y-%m-%d")
+
+        wo_repo = WorkOrderRepository(SessionLocal)
         success, msg = wo_repo.create_work_order(
             title=title,
             equipment_id=equipment_id,
@@ -154,17 +179,13 @@ class EmergencyWorkOrderDialog(tk.Toplevel):
             operator_id=current_user.id,
             failure_report_time=datetime.now(),
             operator_notes=description,
-            operator_signature=None
+            operator_signature=None,
+            deadline=deadline
         )
 
         if success:
-            # Optionally also store emergency_reported_by directly? The model has the field but we didn't use it
-            # We can update the work order to set emergency_reported_by
-            # For simplicity, we set via repository later; but let's do direct update
-            from database.db import SessionLocal
             db = SessionLocal()
             try:
-                # Get the latest work order (the one just created)
                 wo = db.query(WorkOrder).order_by(WorkOrder.id.desc()).first()
                 if wo:
                     wo.emergency_reported_by = emergency_reported_by

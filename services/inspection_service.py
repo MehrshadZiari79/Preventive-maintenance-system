@@ -2,6 +2,7 @@
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Tuple
 from datetime import datetime
+from database.inspection_repository import InspectionRepository
 from database.models import (
     InspectionTemplate,
     InspectionCheckpoint,
@@ -20,8 +21,10 @@ from schemas.inspection import (
 
 
 class InspectionService:
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, session_factory):
+        self.session_factory = session_factory
+        self.repo = InspectionRepository(session_factory)
+        self.db = session_factory()  # creates a session instance for direct queries
 
     def get_stats(self, equipment_id: Optional[int] = None) -> dict:
         """Alias for get_inspection_stats"""
@@ -101,20 +104,21 @@ class InspectionService:
             return []
 
     def update_template(self, template_id: int, update_data: InspectionTemplateUpdate) -> Optional[InspectionTemplate]:
-        """Update template"""
+        """Update template's scalar columns only (never checkpoints)"""
         try:
             template = self.get_template(template_id)
-
             if not template:
                 return None
 
             update_dict = update_data.model_dump(exclude_unset=True)
 
+            # Only update real table columns – skip relationships like 'checkpoints'
+            column_names = InspectionTemplate.__table__.columns.keys()
             for key, value in update_dict.items():
-                setattr(template, key, value)
+                if key in column_names and hasattr(template, key):
+                    setattr(template, key, value)
 
             template.updated_at = datetime.utcnow()
-
             self.db.commit()
             self.db.refresh(template)
             return template
@@ -185,11 +189,33 @@ class InspectionService:
             self.db.rollback()
             return False, f"خطا در تغییر وضعیت قالب: {str(e)}"
 
+    # New method to replace all checkpoints for a template
+    def replace_checkpoints(self, template_id: int, checkpoints_data: list) -> None:
+        """Delete existing checkpoints and insert new ones for the given template."""
+        try:
+            self.db.query(InspectionCheckpoint).filter(
+                InspectionCheckpoint.template_id == template_id
+            ).delete()
+
+            for i, cp_data in enumerate(checkpoints_data, start=1):
+                checkpoint = InspectionCheckpoint(
+                    template_id=template_id,
+                    title=cp_data["title"],
+                    description=cp_data.get("description"),
+                    checkpoint_type=cp_data["type"],
+                    order_number=i,
+                )
+                self.db.add(checkpoint)
+
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            raise Exception(f"خطا در بروزرسانی چک‌پوینت‌ها: {str(e)}")
+
     # Checkpoint Methods
     def add_checkpoint(self, template_id: int, checkpoint_data: dict) -> Optional[InspectionCheckpoint]:
         """Add checkpoint to template"""
         try:
-            # Verify template exists
             template = self.get_template(template_id)
             if not template:
                 return None
@@ -262,14 +288,12 @@ class InspectionService:
     def create_inspection(self, inspection_data: InspectionCreate) -> Optional[Inspection]:
         """Start new inspection"""
         try:
-            # Verify template exists and is active
             template = self.get_template(inspection_data.template_id)
             if not template:
                 raise ValueError("قالب مورد نظر یافت نشد")
             if not template.is_active:
                 raise ValueError("قالب مورد نظر غیرفعال است")
 
-            # Verify equipment exists
             equipment = self.db.query(Equipment).filter(
                 Equipment.id == inspection_data.equipment_id
             ).first()
@@ -333,19 +357,16 @@ class InspectionService:
         """Save inspection results and complete inspection"""
         try:
             inspection = self.get_inspection(inspection_id)
-
             if not inspection:
                 raise ValueError("Inspection not found")
 
             if inspection.status != "in_progress":
                 raise ValueError("فقط بازرسی‌های در حال انجام قابل تکمیل هستند")
 
-            # Delete existing results if any
             self.db.query(InspectionResult).filter(
                 InspectionResult.inspection_id == inspection_id
             ).delete()
 
-            # Save new results
             pass_count = 0
             fail_count = 0
 
@@ -364,7 +385,6 @@ class InspectionService:
 
                 self.db.add(result)
 
-            # Determine overall result
             total_checkpoints = pass_count + fail_count
             if total_checkpoints == 0:
                 overall_result = "partial"
@@ -375,7 +395,6 @@ class InspectionService:
             else:
                 overall_result = "partial"
 
-            # Complete inspection
             inspection.status = "completed"
             inspection.completed_at = datetime.utcnow()
             inspection.overall_result = overall_result
@@ -391,7 +410,6 @@ class InspectionService:
         """Cancel inspection"""
         try:
             inspection = self.get_inspection(inspection_id)
-
             if not inspection:
                 return None
 
@@ -412,7 +430,6 @@ class InspectionService:
         """Update inspection"""
         try:
             inspection = self.get_inspection(inspection_id)
-
             if not inspection:
                 return None
 
