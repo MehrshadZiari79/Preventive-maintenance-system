@@ -1,5 +1,3 @@
-
-```markdown
 # 🥛 Dairy PM — سیستم مدیریت نگهداری پیشگیرانه
 
 <div align="center">
@@ -11,218 +9,420 @@
 ![Status](https://img.shields.io/badge/Status-Production%20Ready-green?style=for-the-badge)
 
 **سیستم مدیریت نگهداری پیشگیرانه تجهیزات**  
-توسعه‌یافته برای **شرکت گلا** — آمل، ایران
+توسعه‌یافته برای **شرکت گلا — آمل، ایران**
 
-> ⚠️ This is a **private internal tool** developed exclusively for Gela Dairy.  
+> ⚠️ This is a private internal tool developed exclusively for Gela Dairy.  
 > Not open source. All rights reserved.
 
 </div>
 
 ---
 
-## 📋 فهرست مطالب / Table of Contents
+# 📋 فهرست مطالب / Table of Contents
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [Project Structure](#-project-structure)
-- [Installation (SQL Server)](#-installation-sql-server)
-- [Default Login](#-default-login)
-- [Roles & Permissions](#-roles--permissions)
-- [Backup & Restore](#-backup--restore)
-- [Roadmap](#-roadmap)
-- [Tech Stack](#-tech-stack)
-- [Developer](#-developer)
-- [License](#-license)
+- [Overview](#overview)
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Installation](#installation)
+- [Default Login](#default-login)
+- [Roles & Permissions](#roles--permissions)
+- [Backup & Restore](#backup--restore)
+- [Roadmap](#roadmap)
+- [Tech Stack](#tech-stack)
+- [Developer](#developer)
+- [License](#license)
 
 ---
 
-## 🔍 Overview
+# 🔍 Overview
 
 **Dairy PM** is a Windows desktop application built exclusively for the maintenance department of **Gela Dairy (گلا)** in Amol, Iran.
 
-It provides a complete toolset for:
-- Registering and tracking production equipment
-- Scheduling and managing preventive maintenance (PM) plans
-- Managing work orders (preventive, corrective, emergency, inspection)
-- Tracking spare parts inventory and consumption
-- Performing and recording inspections with checkpoints
-- Generating professional reports (KPIs, MTBF, MTTR, OEE, cost analysis, risk scores)
-- Full role‑based access control (Admin, Manager, Technician)
-- Multi‑user support via SQL Server
+The system provides a complete preventive maintenance management solution including:
 
-The UI is **100% Persian** (except chart labels in English) with **Jalali (Shamsi) calendar** integration.
+- Equipment registration and tracking
+- Preventive maintenance scheduling
+- Work order lifecycle management
+- Spare parts inventory management
+- Inspection management
+- KPI and maintenance reports
+- Role-based access control
+- Multi-user SQL Server deployment
+
+Main capabilities:
+
+- Preventive Maintenance (PM)
+- Corrective Maintenance (CM)
+- Emergency Maintenance (EM)
+- Inspection workflows
+- Spare parts consumption tracking
+- Maintenance cost analysis
+- MTBF / MTTR calculations
+- Equipment availability analysis
+- OEE monitoring
+- Risk evaluation
+
+The application interface is fully Persian with Jalali calendar support.
 
 ---
 
-## ✨ Features (All Completed)
+# ✨ Features
 
 | Module | Description |
 |---|---|
-| 🔐 Authentication | Secure login with role‑based access control |
-| 👥 User Management | Full CRUD — add, edit, deactivate users, assign roles |
-| 🔧 Equipment Management | Equipment registry with status, category, and Jalali date support |
-| 📅 PM Scheduling | Define periodic maintenance plans per equipment with checklists and required spare parts |
-| 📝 Work Orders | Create, assign, start, complete, approve/reject maintenance tasks (Preventive, Corrective, Emergency, Inspection) |
-| 🔩 Spare Parts | Full inventory management (add, edit, delete, stock IN/OUT, low‑stock alerts, transaction history) |
-| 🔍 Inspections | Template-based inspection checklists, start/complete inspections, pass/fail/partial results |
-| 📊 Reports & Dashboard | KPI cards, equipment performance (MTBF, MTTR, Availability, OEE), cost analysis, failure modes, risk scores, monthly PM/CM/EM trends, schedule compliance, technician performance |
-| 📎 Excel Exports | One‑click export of any tab to a professionally formatted Excel file |
-| 💾 Database Backup | Admin‑only backup of SQL Server database (saves `.bak` file on server) |
-| 📋 Activity Log | Full audit trail of all user actions |
-| 🌐 Multi‑User | Supports 10+ concurrent users via SQL Server |
-| 🖥️ Modern UI | Navy/White/Red theme with responsive scrollable areas and custom‑styled scrollbars |
+| 🔐 Authentication | Secure login with role-based access control |
+| 👥 User Management | Add, edit, deactivate users and assign permissions |
+| 🔧 Equipment Management | Equipment registry with categories, status and Jalali dates |
+| 📅 PM Scheduling | Define maintenance plans with intervals, checklists and required spare parts |
+| 📝 Work Orders | Create, assign, execute, approve and track maintenance tasks |
+| 🔩 Spare Parts | Inventory, stock movement, alerts and transaction history |
+| 🔍 Inspections | Template-based inspection checklists with results tracking |
+| 📊 Reports Dashboard | MTBF, MTTR, OEE, availability, cost reports and maintenance KPIs |
+| 📎 Excel Export | Export reports and tables to formatted Excel files |
+| 💾 Database Backup | SQL Server backup functionality for administrators |
+| 📋 Activity Logs | Complete user action history |
+| 🌐 Multi User | Supports multiple concurrent users through SQL Server |
+| 🖥️ Modern UI | Responsive Persian desktop interface with custom styling |
 
 ---
 
-## 🗂 Project Structure
+# 🗂 Project Structure
 
-```
+```text
 dairy_pm_app/
+│
 ├── auth/
 │   └── auth_manager.py
+│
 ├── database/
-│   ├── db.py                    # SQLAlchemy engine (SQL Server compatible)
-│   ├── models.py                # All database models
-│   ├── work_order.py            # WorkOrder model & enums
-│   ├── *repositories.py         # Data access layers
-│   └── seed.py                  # Initial admin seed (only runs once)
-├── schemas/                     # Pydantic schemas for inspections
-├── services/                    # Business logic services
+│   ├── db.py
+│   ├── models.py
+│   ├── work_order.py
+│   ├── repositories.py
+│   └── seed.py
+│
+├── schemas/
+│
+├── services/
+│
 ├── utils/
-│   ├── theme.py                 # Centralized colors, fonts
-│   ├── backup.py                # SQL Server backup (admin only)
+│   ├── theme.py
+│   ├── backup.py
 │   └── logger.py
-├── views/                       # All UI views and dialogs
+│
+├── views/
+│
 ├── config.py
 ├── main.py
 └── requirements.txt
 ```
+---
+
+# ⚙️ Installation
+
+> Internal deployment guide for company IT setup and client PCs.
+
+## Server Requirements
+
+- Microsoft SQL Server 2017 or later
+- TCP/IP enabled
+- Port 1433 available
+- Dedicated application database (example: `PM_Database`)
+- SQL user with required permissions
+
+Recommended permissions:
+
+```
+db_datareader
+db_datawriter
+db_ddladmin
+```
+
+The application automatically creates required tables on first startup.
 
 ---
 
-## ⚙️ Installation (SQL Server)
+## Client Requirements
 
-> For internal IT setup on the company server and client PCs.
+- Windows operating system
+- Python 3.10+
+- ODBC Driver 17 for SQL Server
+- Network access to database server
 
-### Prerequisites (Server)
+---
 
-- Microsoft SQL Server (2017 or later) with TCP/IP enabled
-- Port 1433 open in firewall
-- A dedicated database (e.g., `PM_Database`)
-- A SQL login for the application (e.g., `pm_app_user`) with `db_datareader`, `db_datawriter`, `db_ddladmin` rights (tables created automatically)
+## Installation Steps
 
-### Prerequisites (Client PC)
-
-- Python 3.10 or higher
-- pyodbc driver (ODBC Driver 17 for SQL Server)
-- Network access to the SQL Server
-
-### Steps on each client
+### 1. Clone Repository
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/MehrshadZiari79/Preventive-maintenance-system.git
+
 cd Preventive-maintenance-system
+```
 
-# 2. Create a virtual environment
+---
+
+### 2. Create Virtual Environment
+
+```bash
 python -m venv venv
+
 venv\Scripts\activate
+```
 
-# 3. Install dependencies
+---
+
+### 3. Install Dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-# 4. Set environment variable (in a .env file)
+---
+
+### 4. Configure Database Connection
+
+Create a `.env` file:
+
+```env
 DATABASE_URL=mssql+pyodbc://pm_app_user:YourPassword@server_ip/PM_Database?driver=ODBC+Driver+17+for+SQL+Server
+```
 
-# 5. Run the application
+Replace:
+
+- `pm_app_user` with your SQL username
+- `YourPassword` with your SQL password
+- `server_ip` with the database server address
+
+---
+
+### 5. Run Application
+
+```bash
 python main.py
 ```
 
-On first run, all tables are created automatically. The seed script inserts only one admin user (if no users exist). No sample data is added – the database starts empty.
+On first execution:
+
+- Database tables are created automatically
+- Initial administrator account is created
+- Application starts with an empty database
+
+No demo/sample data is inserted.
 
 ---
 
-## 🔑 Default Login
+# 🔑 Default Login
 
 | Field | Value |
 |---|---|
 | Username | `admin` |
 | Password | `admin123` |
 
-> ⚠️ **Change the default password immediately after first login.**
+⚠️ Change the default password immediately after the first login.
 
 ---
 
-## 👤 Roles & Permissions
+# 👤 Roles & Permissions
 
-| Role | Persian | Permissions |
+| Role | Persian Name | Permissions |
 |---|---|---|
-| **Admin** | مدیر سیستم | Full access — manage users, view activity logs, backup database, delete any equipment, approve/reject work orders, all settings |
-| **Manager** | مدیر | Manage equipment, PM schedules, approve/reject work orders, manage spare parts, manage inspection templates, view all reports |
-| **Technician** | تکنسین | View equipment and PMs, create/start/complete work orders, perform inspections, view spare part history |
+| Admin | مدیر سیستم | Full system access, user management, database backup, settings and approvals |
+| Manager | مدیر | Equipment management, PM plans, approvals, reports and inventory management |
+| Technician | تکنسین | View equipment, execute work orders, complete inspections and view assigned tasks |
 
-All permissions are enforced at the UI level (buttons hidden) and action level (message guards).
+Security is enforced at two levels:
 
----
-
-## 💾 Backup & Restore
-
-- **Backup**: Admin clicks "پشتیبان دیتابیس" → executes SQL Server `BACKUP DATABASE`. The `.bak` file is saved on the server (default path `C:\Backups`).
-- **Restore**: Not implemented in the client – must be done by DBA using SQL Server Management Studio.
-- **Recommendation**: Schedule regular SQL Server Agent backup jobs.
+- UI level (buttons and menus)
+- Action validation level
 
 ---
 
-## 🗺️ Roadmap (Fully Completed)
+# 📝 Work Order Types
 
-All planned features have been implemented. The application is **production ready**.
+The system supports:
+
+| Type | Description |
+|---|---|
+| Preventive Maintenance | Scheduled maintenance activities |
+| Corrective Maintenance | Repairs after equipment failure |
+| Emergency Maintenance | Urgent maintenance operations |
+| Inspection | Equipment inspection workflows |
+
+Work order lifecycle:
 
 ```
-✅ Phase 1-3  – Authentication & Architecture
-✅ Phase 4    – User Management
-✅ Phase 5    – Equipment Management
-✅ Phase 6    – Work Orders (all types, approval workflow)
-✅ Phase 7    – Spare Parts Management
-✅ Phase 8    – Inspections & Reports (KPIs, MTBF, OEE, cost, risk)
-✅ Phase 9    – Multi‑User SQL Server Support
-✅ Phase 10   – Modern UI/UX (Navy/White/Red theme, Persian labels)
-✅ Phase 11   – Excel Exports & Backup
+Created
+   ↓
+Assigned
+   ↓
+Started
+   ↓
+Completed
+   ↓
+Approved / Rejected
 ```
-
-**Overall Progress: 100%** – Ready for deployment.
 
 ---
 
-## 🛠 Tech Stack
+# 💾 Backup & Restore
+
+## Backup
+
+Administrators can create database backups through:
+
+```
+پشتیبان دیتابیس
+```
+
+The system executes SQL Server:
+
+```sql
+BACKUP DATABASE
+```
+
+and stores the `.bak` file on the server.
+
+Default location:
+
+```
+C:\Backups
+```
+
+---
+
+## Restore
+
+Database restoration is performed by a database administrator using:
+
+```
+SQL Server Management Studio (SSMS)
+```
+
+Recommended:
+
+- Enable scheduled SQL Server Agent backups
+- Keep multiple backup versions
+- Store backups separately from the database server
+
+---
+
+# 🗺 Roadmap
+
+## Development Status
+
+All planned phases have been completed.
+
+```
+✅ Phase 1  - Authentication & Architecture
+✅ Phase 2  - User Management
+✅ Phase 3  - Equipment Management
+✅ Phase 4  - Preventive Maintenance Scheduling
+✅ Phase 5  - Work Orders
+✅ Phase 6  - Spare Parts Management
+✅ Phase 7  - Inspection System
+✅ Phase 8  - Reports & KPIs
+✅ Phase 9  - SQL Server Multi User Support
+✅ Phase 10 - Modern Persian UI
+✅ Phase 11 - Excel Export & Backup
+```
+
+**Overall Progress: 100% — Production Ready**
+---
+
+# 🛠 Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Language | Python 3.10+ |
-| GUI | Tkinter + CustomTkinter |
+| Programming Language | Python 3.10+ |
+| GUI Framework | Tkinter + CustomTkinter |
 | ORM | SQLAlchemy |
-| Database | SQL Server (production) – SQLite support removed |
-| Charts | Matplotlib |
+| Database | Microsoft SQL Server |
+| Database Driver | PyODBC |
+| Charts & Analytics | Matplotlib |
 | Excel Export | OpenPyXL |
-| Calendar | tkcalendar (Jalali support) |
-| Packaging | PyInstaller (EXE generated) |
+| Calendar System | tkcalendar (Jalali Support) |
+| Packaging | PyInstaller |
 
 ---
 
-## 👨‍💻 Developer
+# 📊 Reporting & Analytics
 
-**Mehrshad Ziari**  
-Computer Engineer — Gela Dairy, Amol, Iran
+The reporting module provides:
 
-> For bug reports or feature requests, contact the developer directly through internal company channels.
+- Maintenance KPI dashboard
+- MTBF calculation
+- MTTR calculation
+- Equipment availability analysis
+- OEE monitoring
+- Maintenance cost analysis
+- Failure analysis
+- Risk scoring
+- PM compliance reports
+- Technician performance reports
+- Monthly maintenance trends
 
 ---
 
-## 📄 License
+# 🖥 Deployment Architecture
 
-**Proprietary — All Rights Reserved**
+The application is designed for enterprise internal deployment.
 
-Copyright © 2025 Gela Dairy — Amol, Iran.  
-This software is developed exclusively for internal use at Gela Dairy.  
-Unauthorized copying, distribution, or use is strictly prohibited.
+Architecture:
+
+```
+Client PCs
+    |
+    |
+Python Desktop Application
+    |
+    |
+SQL Server Database
+    |
+    |
+Company Network
 ```
 
+Supported environment:
+
+- Multiple users
+- Central database
+- Role-based permissions
+- Internal company network deployment
+
+---
+
+# 👨‍💻 Developer
+
+**Mehrshad Ziari**
+
+Computer Engineer  
+Gela Dairy — Amol, Iran
+
+Developed exclusively for internal maintenance management operations.
+
+For bug reports or feature requests, contact the developer through internal company channels.
+
+---
+
+# 📄 License
+
+## Proprietary Software
+
+Copyright © 2025 Gela Dairy — Amol, Iran.
+
+This software is developed exclusively for internal use at Gela Dairy.
+
+Unauthorized:
+
+- Copying
+- Distribution
+- Modification
+- Commercial use
+
+is strictly prohibited.
+
+All rights reserved.
+
+---
