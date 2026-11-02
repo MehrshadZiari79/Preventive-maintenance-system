@@ -1,0 +1,15 @@
+Gela PM System
+==============
+
+Designed and developed by Mehrshad Ziari
+for Gela Dairy Co. (شرکت لبنی گلا), Amol, Iran, 2025-2026.
+
+The source code is published so that the work can be seen. It is not open
+source: all rights are reserved by Gela Dairy Co. and the author. Any use,
+copy, modification or distribution requires prior written permission.
+
+Permission requests: MehrshadZiari79@gmail.com
+
+Third-party components keep their own licenses, including the Vazirmatn font
+(docs/manual/fonts, SIL Open Font License 1.1) and the Python packages listed
+in requirements.txt.

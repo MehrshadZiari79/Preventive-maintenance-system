@@ -1,0 +1,27 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Compile check (Python 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Every Python file compiles
+        run: python -m compileall -q -x "(^|/)(docs|build|dist)/" .
+      - name: No database settings committed
+        run: |
+          if [ -f database/db_secrets.py ]; then
+            echo "database/db_secrets.py must never be committed"; exit 1
+          fi

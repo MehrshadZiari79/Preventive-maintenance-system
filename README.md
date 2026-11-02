@@ -16,13 +16,38 @@ maintenance KPIs, in Persian with the Jalali calendar.
 ![UI](https://img.shields.io/badge/UI-Tkinter%20%2F%20ttk-1A2A44)
 ![Database](https://img.shields.io/badge/database-SQL%20Server-1A2A44)
 ![License](https://img.shields.io/badge/license-proprietary-555)
+[![build](https://github.com/MehrshadZiari79/Preventive-maintenance-system/actions/workflows/build.yml/badge.svg)](https://github.com/MehrshadZiari79/Preventive-maintenance-system/actions/workflows/build.yml)
+[![CodeQL](https://github.com/MehrshadZiari79/Preventive-maintenance-system/actions/workflows/codeql.yml/badge.svg)](https://github.com/MehrshadZiari79/Preventive-maintenance-system/actions/workflows/codeql.yml)
+
+**Designed and built by [Mehrshad Ziari](https://github.com/MehrshadZiari79) for Gela Dairy Co., Amol, Iran**
 
 <img src="docs/manual/img/dashboard.png" alt="Dashboard" width="860">
 
 </div>
 
-> Internal software of Gela Dairy Co. It is not open source and is not licensed for use
-> outside the company. See [License](#license).
+> [!IMPORTANT]
+> This is production software of **Gela Dairy Co.**, designed and developed by **Mehrshad Ziari**.
+> The code is public so the work can be seen; it is **not open source**. Using, copying or
+> modifying any part of it requires written permission: **MehrshadZiari79@gmail.com**.
+> See [License](#license).
+
+<div dir="rtl">
+
+### خلاصه فارسی
+
+**سیستم مدیریت نگهداری و تعمیرات (نت) شرکت لبنی گلا** — طراحی و توسعه: **مهرشاد ضیاری**
+
+نرم‌افزار دسکتاپ فارسی و راست‌به‌چپ برای واحد نگهداری و تعمیرات کارخانه: شناسنامه تجهیزات،
+برنامه‌های نگهداری پیشگیرانه (PM) با ساخت خودکار دستور کار، گردش کامل دستور کارها از تأیید تا
+اتمام، حکم درخواست تعمیرات، بازرسی‌ها، انبار قطعات یدکی، ساعت کار ماشین‌آلات و توقف‌ها، و
+گزارش‌های استاندارد نت (MTBF، MTTR، دسترس‌پذیری، OEE و …) با خروجی Excel و PDF.
+همه تاریخ‌ها شمسی و به وقت تهران هستند، دسترسی‌ها بر اساس نقش است و نسخه‌های جدید بدون
+نیاز به کاربر مدیر، به‌صورت خودکار روی همه کامپیوترها نصب می‌شوند.
+
+این کد برای نمایش کار منتشر شده و **متن‌باز نیست**. هرگونه استفاده، کپی یا تغییر نیازمند
+اجازه کتبی است: <span dir="ltr">MehrshadZiari79@gmail.com</span>
+
+</div>
 
 ---
 
@@ -472,17 +497,20 @@ Release notes are in [CHANGES_v2.4.md](CHANGES_v2.4.md).
 
 ## Maintainer
 
-**Mehrshad Ziari** — Computer Engineer, Gela Dairy, Amol
+**Mehrshad Ziari** — Computer Engineer, Gela Dairy Co., Amol, Iran
+Designer and sole developer of this system.
 
-Report bugs and feature requests through the company's internal channels.
+- Permission requests and questions: **MehrshadZiari79@gmail.com**
+- Security problems: see [SECURITY.md](SECURITY.md)
 
 ---
 
 ## License
 
-Copyright © 2025–2026 Gela Dairy Co., Amol, Iran. All rights reserved.
+Copyright © 2025–2026 Gela Dairy Co., Amol, Iran, and Mehrshad Ziari. All rights reserved.
 
-This software is proprietary and was developed for internal use at Gela Dairy. Copying,
-distribution, modification or use outside the company without written permission is not
-permitted. The bundled Vazirmatn font (`docs/manual/fonts/`) is licensed under the SIL Open
-Font License 1.1.
+The source is visible for reference and portfolio purposes only. It is **not open source**:
+no part of the code, documentation or screenshots may be used, copied, modified or
+distributed without prior written permission. Requests: **MehrshadZiari79@gmail.com**.
+See [LICENSE](LICENSE) and [NOTICE](NOTICE). The bundled Vazirmatn font
+(`docs/manual/fonts/`) is licensed under the SIL Open Font License 1.1.
