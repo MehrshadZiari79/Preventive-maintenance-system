@@ -1,16 +1,19 @@
 # views/equipment_view.py
 import tkinter as tk
+from views.ui_kit import rtl_columns  # RTL (right-to-left) table columns
 from tkinter import ttk, messagebox
 from datetime import datetime
 from database.models import EquipmentStatus
+from auth.auth_manager import AuthManager
 from views.equipment_dialog import EquipmentDialog
 from views.category_manager_dialog import CategoryManagerDialog
 from views.location_manager_dialog import LocationManagerDialog
 from utils.theme import (
-    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
-    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
+    NAVY, NAVY_LIGHT, WHITE, TEXT_DARK, TEXT_LIGHT, SUCCESS,
     FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
 )
+# Import Jalali date helper
+from utils.date_helpers import to_jalali_datetime_str
 
 CARD_BG     = "#FFFFFF"
 CARD_BORDER = "#E8ECF0"
@@ -52,7 +55,11 @@ class EquipmentView(tk.Frame):
         self.is_manager     = current_user["role"] in ["admin", "manager"]
         self.is_technician  = current_user["role"] == "technician"
         # Technicians can add/edit/change status, but not delete or manage categories/locations
-        self.can_edit       = self.is_manager or self.is_technician
+        # built-in roles as before; custom roles from «مدیریت نقش‌ها»
+        self.can_edit       = AuthManager.allows(("admin", "manager", "technician"), "equipment", "write")
+        # category / location lists: managers, or a custom role with «حذف» (full control)
+        self.can_manage_lists = AuthManager.allows(("admin", "manager"), "equipment", "delete")
+        self.can_delete     = AuthManager.can_access("equipment", "delete")
         self._build_ui()
         self._load_data()
 
@@ -86,7 +93,7 @@ class EquipmentView(tk.Frame):
                       bg=WHITE, fg=NAVY, relief="flat", cursor="hand2",
                       padx=14, pady=6,
                       command=self._add_equipment).pack(side="left", padx=4, pady=20)
-        if self.is_manager:
+        if self.can_manage_lists:
             tk.Button(left, text="🏷️  دسته‌بندی‌ها", font=FONT_SMALL,
                       bg=NAVY_LIGHT, fg=WHITE, relief="flat", cursor="hand2",
                       padx=14, pady=6,
@@ -194,6 +201,7 @@ class EquipmentView(tk.Frame):
 
         cols = ("code", "name", "category", "location", "status", "updated")
         self.tree = ttk.Treeview(card, columns=cols, show="headings", height=16)
+        rtl_columns(self.tree)  # RTL column order
 
         style = ttk.Style()
         style.configure("Equipment.Treeview",
@@ -248,7 +256,7 @@ class EquipmentView(tk.Frame):
             self._ctx.add_command(label="✏️  ویرایش",           command=self._edit_equipment)
             self._ctx.add_command(label="🔄  تغییر وضعیت",      command=self._change_status)
             self._ctx.add_separator()
-        if self.is_admin:
+        if self.can_delete:
             self._ctx.add_command(label="🗑️  حذف",              command=self._delete_equipment)
 
     def _show_context_menu(self, event):
@@ -277,7 +285,7 @@ class EquipmentView(tk.Frame):
                       bg=ACCENT_AMBER, fg=WHITE, relief="flat", cursor="hand2",
                       padx=16, pady=8,
                       command=self._change_status).pack(side="right", padx=4)
-        if self.is_admin:
+        if self.can_delete:
             tk.Button(inner, text="🗑️  حذف", font=FONT_NORMAL,
                       bg=ACCENT_ROSE, fg=WHITE, relief="flat", cursor="hand2",
                       padx=16, pady=8,
@@ -308,12 +316,21 @@ class EquipmentView(tk.Frame):
 
         for eq in equipment_list:
             status_text = STATUS_FA.get(eq["status"], eq["status"])
-            updated = eq.get("updated_at", "—") or "—"
-            try:
-                dt      = datetime.strptime(updated, "%Y-%m-%d %H:%M:%S")
-                updated = dt.strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                pass
+
+            # Convert updated_at to Jalali
+            updated_raw = eq.get("updated_at")
+            if updated_raw:
+                try:
+                    if isinstance(updated_raw, str):
+                        dt = datetime.strptime(updated_raw, "%Y-%m-%d %H:%M:%S")
+                    else:
+                        dt = updated_raw
+                    updated = to_jalali_datetime_str(dt)
+                except Exception:
+                    updated = "—"
+            else:
+                updated = "—"
+
             self.tree.insert("", "end", values=(
                 eq["code"], eq["name"], eq["category"],
                 eq["location"], status_text, updated
@@ -440,8 +457,8 @@ class EquipmentView(tk.Frame):
         dlg.geometry(f"+{x}+{y}")
 
     def _manage_categories(self):
-        if not self.is_manager:
-            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند دسته‌بندی‌ها را مدیریت کنند.", parent=self)
+        if not self.can_manage_lists:
+            messagebox.showwarning("دسترسی", "شما مجاز به مدیریت دسته‌بندی‌ها نیستید.", parent=self)
             return
         dialog = CategoryManagerDialog(
             self, self.equipment_repo,
@@ -449,8 +466,8 @@ class EquipmentView(tk.Frame):
         self.wait_window(dialog)
 
     def _manage_locations(self):
-        if not self.is_manager:
-            messagebox.showwarning("دسترسی", "فقط مدیران می‌توانند موقعیت‌ها را مدیریت کنند.", parent=self)
+        if not self.can_manage_lists:
+            messagebox.showwarning("دسترسی", "شما مجاز به مدیریت موقعیت‌ها نیستید.", parent=self)
             return
         dialog = LocationManagerDialog(
             self, self.equipment_repo,
@@ -468,8 +485,8 @@ class EquipmentView(tk.Frame):
         run_equipment_export(self, eq_list, selected_equipment=selected)
 
     def _delete_equipment(self):
-        if not self.is_admin:
-            messagebox.showwarning("دسترسی", "فقط مدیر سیستم می‌تواند تجهیز حذف کند.", parent=self)
+        if not self.can_delete:
+            messagebox.showwarning("دسترسی", "شما مجاز به حذف تجهیز نیستید.", parent=self)
             return
         equipment = self._get_selected_equipment()
         if not equipment:
@@ -477,26 +494,28 @@ class EquipmentView(tk.Frame):
         if not messagebox.askyesno(
             "تایید حذف",
             f"آیا از حذف تجهیز «{equipment['name']}» اطمینان دارید؟\n\n"
-            "تمام اطلاعات مرتبط (دستورکارها، بازرسی‌ها و ...) نیز حذف خواهند شد.",
+            "تجهیزی که سابقه (دستورکار، بازرسی، ساعت کار) دارد حذف نمی‌شود "
+            "و می‌توانید آن را غیرفعال کنید.",
             parent=self
         ):
             return
-        try:
-            ok, msg = self.equipment_repo.delete_equipment(equipment["id"])
-            if ok:
+        ok, msg = self.equipment_repo.delete_equipment(equipment["id"])
+        if ok:
+            self._load_data()
+            messagebox.showinfo("موفق", msg, parent=self)
+        elif "غیرفعال" in msg and equipment.get("status") != EquipmentStatus.INACTIVE.value:
+            if messagebox.askyesno("حذف ممکن نیست", msg + "\n\nوضعیت تجهیز الان «غیرفعال» شود؟", parent=self):
+                ok2, msg2 = self.equipment_repo.update_status(
+                    equipment["id"], EquipmentStatus.INACTIVE.value)
                 self._load_data()
-                messagebox.showinfo("موفق", msg, parent=self)
-            else:
-                messagebox.showerror("خطا", msg, parent=self)
-        except Exception:
-            messagebox.showerror(
-                "خطا",
-                "نمی‌توان تجهیز را حذف کرد.\nابتدا کلیه دستورکارهای مرتبط را حذف کنید.",
-                parent=self)
+                if not ok2:
+                    messagebox.showerror("خطا", msg2, parent=self)
+        else:
+            messagebox.showerror("خطا", msg, parent=self)
 
     def _delete_selected(self):
-        if not self.is_admin:
-            messagebox.showwarning("دسترسی", "فقط مدیر سیستم می‌تواند تجهیز حذف کند.", parent=self)
+        if not self.can_delete:
+            messagebox.showwarning("دسترسی", "شما مجاز به حذف تجهیز نیستید.", parent=self)
             return
         selected = self.tree.selection()
         if not selected:
@@ -513,17 +532,16 @@ class EquipmentView(tk.Frame):
             if vals:
                 eq = self.equipment_repo.get_equipment_by_code(vals[0])
                 if eq:
-                    try:
-                        ok, msg = self.equipment_repo.delete_equipment(eq["id"])
-                        if not ok:
-                            errors.append(f"{eq['name']}: {msg}")
-                    except Exception:
-                        errors.append(f"{eq['name']}: دستورکار مرتبط وجود دارد.")
+                    ok, msg = self.equipment_repo.delete_equipment(eq["id"])
+                    if not ok:
+                        errors.append(f"{eq['name']}: {msg.splitlines()[0]}")
         self._load_data()
         if errors:
             messagebox.showerror("خطا در حذف", "\n".join(errors), parent=self)
 
-    # Global keybinding handlers
+    # ========================================================================
+    # Global keybinding handlers  (called by MainView)
+    # ========================================================================
     def handle_enter(self):
         if not self.can_edit:
             return
@@ -531,3 +549,20 @@ class EquipmentView(tk.Frame):
 
     def handle_delete(self):
         self._delete_selected()
+
+    def handle_f2(self):
+        if not self.can_edit:
+            return
+        self._edit_or_add()
+
+    def handle_new(self):
+        if not self.can_edit:
+            return
+        self._add_equipment()
+
+    def ux_footer_spec(self):
+        """Filters shown as removable chips under the table (views/ux.py)."""
+        return {"filters": [("جستجو", self.search_var, ""), ("دسته", self.category_var, "همه"),
+                            ("وضعیت", self.status_var, "همه")],
+                "apply": self._load_data, "noun": "تجهیز"}
+

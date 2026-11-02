@@ -1,13 +1,12 @@
 # database/equipment_repository.py
-from datetime import datetime
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
 from database.models import (
     Equipment, EquipmentStatus, PMSchedule,
-    Inspection, InspectionTemplate, ProductionLog, InspectionResult
+    Inspection, InspectionTemplate, ProductionLog,
 )
 from database.work_order import WorkOrder
 from utils.logger import log_action
+from utils.date_helpers import tehran_now  # Iranian (Asia/Tehran) clock
 
 
 class EquipmentRepository:
@@ -128,7 +127,7 @@ class EquipmentRepository:
             eq.height = height
             eq.volume = volume
             eq.weight = weight
-            eq.updated_at = datetime.now()
+            eq.updated_at = tehran_now()
             session.commit()
             log_action("UPDATE", "equipment", equipment_id, f"کد: {code}")
             return True, "تجهیز بروزرسانی شد."
@@ -138,65 +137,79 @@ class EquipmentRepository:
         finally:
             session.close()
 
+    def get_history_counts(self, equipment_id) -> dict:
+        """Work history recorded for this equipment."""
+        session = self.Session()
+        try:
+            counts = {
+                "work_orders": session.query(func.count(WorkOrder.id)).filter(
+                    WorkOrder.equipment_id == equipment_id).scalar() or 0,
+                "inspections": session.query(func.count(Inspection.id)).filter(
+                    Inspection.equipment_id == equipment_id).scalar() or 0,
+                "production_logs": session.query(func.count(ProductionLog.id)).filter(
+                    ProductionLog.equipment_id == equipment_id).scalar() or 0,
+                "shift_logs": 0,
+            }
+            try:
+                from database.machine_shift_repository import MachineShiftRepository
+                if MachineShiftRepository(self.Session).shift_tables_available():
+                    from database.machine_shift import MachineShiftLog
+                    counts["shift_logs"] = session.query(func.count(MachineShiftLog.id)).filter(
+                        MachineShiftLog.equipment_id == equipment_id).scalar() or 0
+            except ImportError:
+                pass
+            return counts
+        finally:
+            session.close()
+
     def delete_equipment(self, equipment_id):
         """
-        Delete equipment and ALL related data safely, in order:
-          1. Inspection results (child of inspections)
-          2. Inspections
-          3. Work orders
-          4. PM schedules
-          5. Production logs
-          6. Inspection templates (set equipment_id to NULL)
-          7. The equipment itself
+        Delete equipment only when it has no work history.
+
+        Equipment with work orders, inspections or machine-hour records is
+        kept so that reports (MTBF, MTTR, costs, OEE) stay correct; set its
+        status to «غیرفعال» instead.  Configuration that belongs only to the
+        equipment (PM schedules) is removed with it, and inspection templates
+        are detached.
         """
+        try:
+            counts = self.get_history_counts(equipment_id)
+        except Exception as e:
+            return False, f"خطای پایگاه داده: {str(e)}"
+        labels = {
+            "work_orders": "دستور کار",
+            "inspections": "بازرسی",
+            "production_logs": "ثبت ساعت کار",
+            "shift_logs": "برگه شیفت",
+        }
+        used = [f"{n} {labels[k]}" for k, n in counts.items() if n]
+        if used:
+            return False, (
+                "این تجهیز سابقه دارد ("
+                + "، ".join(used)
+                + ") و برای درست ماندن گزارش‌ها قابل حذف نیست.\n"
+                "به‌جای حذف، وضعیت آن را «غیرفعال» کنید."
+            )
+
         session = self.Session()
         try:
             equipment = session.query(Equipment).filter(Equipment.id == equipment_id).first()
             if not equipment:
                 return False, "تجهیز یافت نشد."
+            code, name = equipment.code, equipment.name
 
-            # 1. Delete inspection results for all inspections of this equipment
-            insp_ids = session.query(Inspection.id).filter(
-                Inspection.equipment_id == equipment_id
-            ).all()
-            if insp_ids:
-                ids_list = [i[0] for i in insp_ids]
-                session.query(InspectionResult).filter(
-                    InspectionResult.inspection_id.in_(ids_list)
-                ).delete(synchronize_session=False)
-
-            # 2. Now delete the inspections themselves
-            session.query(Inspection).filter(
-                Inspection.equipment_id == equipment_id
-            ).delete(synchronize_session=False)
-
-            # 3. Delete work orders belonging to this equipment
-            session.query(WorkOrder).filter(
-                WorkOrder.equipment_id == equipment_id
-            ).delete(synchronize_session=False)
-
-            # 4. Delete PM schedules belonging to this equipment
             session.query(PMSchedule).filter(
                 PMSchedule.equipment_id == equipment_id
             ).delete(synchronize_session=False)
-
-            # 5. Delete production logs for this equipment
-            session.query(ProductionLog).filter(
-                ProductionLog.equipment_id == equipment_id
-            ).delete(synchronize_session=False)
-
-            # 6. Set equipment_id to NULL for inspection templates
             session.query(InspectionTemplate).filter(
                 InspectionTemplate.equipment_id == equipment_id
             ).update({InspectionTemplate.equipment_id: None}, synchronize_session=False)
 
-            # 7. Finally, delete the equipment
             session.delete(equipment)
             session.commit()
 
-            log_action("DELETE", "equipment", equipment_id,
-                       f"کد: {equipment.code}, نام: {equipment.name}")
-            return True, "تجهیز و تمام اطلاعات مرتبط با موفقیت حذف شد."
+            log_action("DELETE", "equipment", equipment_id, f"کد: {code}, نام: {name}")
+            return True, "تجهیز حذف شد."
         except Exception as e:
             session.rollback()
             return False, f"خطای پایگاه داده: {str(e)}"
@@ -211,7 +224,7 @@ class EquipmentRepository:
             if not eq:
                 return False, "تجهیز یافت نشد."
             eq.status = new_status
-            eq.updated_at = datetime.now()
+            eq.updated_at = tehran_now()
             session.commit()
             log_action("STATUS", "equipment", equipment_id, new_status)
             return True, "وضعیت با موفقیت تغییر کرد."

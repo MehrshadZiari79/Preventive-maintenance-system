@@ -3,8 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from utils.theme import (
     NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
-    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
-    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+    TEXT_DARK, FONT_HEADING, FONT_NORMAL
 )
 
 CARD_BG = WHITE

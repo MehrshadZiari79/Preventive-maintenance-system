@@ -1,321 +1,88 @@
 # generate_manual.py
 """
-Generate a comprehensive Persian user manual for PM System.
-Each role has its own section.
+Build the user manual PDF (PM_System_Manual.pdf) from docs/manual/manual.html.
+
+The manual is written as an HTML page (Persian, right-to-left, Vazirmatn
+font, real screenshots in docs/manual/img).  Setup.iss installs the PDF in
+the program's docs folder and on the desktop.
+
+    python generate_manual.py
+
+Uses Microsoft Edge (present on every Windows 10/11 PC) in headless mode, or
+Playwright's Chromium if it is installed.  To change the manual, edit
+docs/manual/manual.html and run this script again.
 """
-from docx import Document
-from docx.shared import Pt, Inches, RGBColor, Cm
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.style import WD_STYLE_TYPE
 
-doc = Document()
-style = doc.styles['Normal']
-font = style.font
-font.name = 'B Nazanin'          # Persian-friendly font
-font.size = Pt(12)
-style.paragraph_format.space_after = Pt(6)
-style.paragraph_format.space_before = Pt(0)
+from __future__ import annotations
 
-# Helper functions
-def add_heading(text, level=1):
-    heading = doc.add_heading(text, level=level)
-    for run in heading.runs:
-        run.font.name = 'B Nazanin'
-        run.font.size = Pt(16 if level == 1 else 14 if level == 2 else 13)
-        run.font.color.rgb = RGBColor(0x1A, 0x2A, 0x44)   # navy
-    return heading
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 
-def add_para(text, bold=False, italic=False, size=12, color=None, alignment=None):
-    p = doc.add_paragraph()
-    run = p.add_run(text)
-    run.font.name = 'B Nazanin'
-    run.font.size = Pt(size)
-    run.bold = bold
-    run.italic = italic
-    if color:
-        run.font.color.rgb = color
-    if alignment is not None:
-        p.alignment = alignment
-    return p
+ROOT = Path(__file__).resolve().parent
+HTML = ROOT / "docs" / "manual" / "manual.html"
+PDF = ROOT / "PM_System_Manual.pdf"
 
-def add_bullet(text, level=0):
-    p = doc.add_paragraph(text, style='List Bullet')
-    p.paragraph_format.left_indent = Cm(1.5 + level * 1)
-    for run in p.runs:
-        run.font.name = 'B Nazanin'
-        run.font.size = Pt(12)
-    return p
 
-def add_table(headers, rows):
-    table = doc.add_table(rows=1 + len(rows), cols=len(headers), style='Table Grid')
-    # header row
-    hdr_cells = table.rows[0].cells
-    for i, header in enumerate(headers):
-        hdr_cells[i].text = header
-        for para in hdr_cells[i].paragraphs:
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in para.runs:
-                run.font.name = 'B Nazanin'
-                run.font.size = Pt(11)
-                run.bold = True
-    # data rows
-    for r, row in enumerate(rows):
-        row_cells = table.rows[r + 1].cells
-        for c, val in enumerate(row):
-            row_cells[c].text = val
-            for para in row_cells[c].paragraphs:
-                para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                for run in para.runs:
-                    run.font.name = 'B Nazanin'
-                    run.font.size = Pt(11)
-    doc.add_paragraph()  # spacing
+def _edge() -> str | None:
+    candidates = [
+        shutil.which("msedge"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        shutil.which("chrome"),
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return None
 
-# ─────────────────────────────────────────────
-# DOCUMENT CONTENT
-# ─────────────────────────────────────────────
 
-add_heading('راهنمای جامع کاربری سیستم نت (PM System)', level=1)
-add_para('شرکت گلا — نسخه ۱.۰.۱', bold=True, size=14, color=RGBColor(0x1A, 0x2A, 0x44), alignment=WD_ALIGN_PARAGRAPH.CENTER)
-doc.add_paragraph()
+def build_with_playwright() -> bool:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return False
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(HTML.as_uri(), wait_until="networkidle")
+        page.evaluate("document.fonts.ready")
+        page.pdf(
+            path=str(PDF), format="A4", print_background=True,
+            display_header_footer=True, header_template="<div></div>",
+            footer_template=('<div style="width:100%;font-size:8px;color:#9CA3AF;'
+                             'text-align:center;font-family:sans-serif">'
+                             '<span class="pageNumber"></span> / <span class="totalPages"></span></div>'),
+            margin={"top": "16mm", "bottom": "18mm", "left": "15mm", "right": "15mm"},
+        )
+        browser.close()
+    return True
 
-add_heading('فهرست مطالب', level=2)
-toc_items = [
-    '۱. مقدمه',
-    '۲. ورود به سیستم',
-    '۳. نقش‌های کاربری و سطح دسترسی',
-    '۴. رابط کاربری اصلی',
-    '۵. راهنمای مدیر سیستم (Admin)',
-    '  ۵.۱ داشبورد',
-    '  ۵.۲ مدیریت تجهیزات',
-    '  ۵.۳ برنامه‌های نگهداری پیشگیرانه',
-    '  ۵.۴ مدیریت دستور کارها',
-    '  ۵.۵ بازرسی‌ها',
-    '  ۵.۶ قطعات یدکی',
-    '  ۵.۷ گزارشات',
-    '  ۵.۸ مدیریت کاربران',
-    '  ۵.۹ لاگ فعالیت',
-    '  ۵.۱۰ ساعات کار دستگاه',
-    '۶. راهنمای مدیر (Manager)',
-    '  ۶.۱ تفاوت با مدیر سیستم',
-    '۷. راهنمای کارشناس تولید (Production Expert)',
-    '۸. راهنمای تکنسین (Technician)',
-    '۹. فرایندهای متداول',
-    '  ۹.۱ صدور دستور کار جدید',
-    '  ۹.۲ انجام و اتمام دستور کار',
-    '  ۹.۳ تأیید نهایی توسط مدیر',
-    '  ۹.۴ بازرسی فنی',
-    '  ۹.۵ ثبت ساعات کارکرد دستگاه',
-    '۱۰. کلیدهای میانبر',
-    '۱۱. عیب‌یابی و سوالات متداول',
-]
-for item in toc_items:
-    add_para(item, size=12)
 
-doc.add_page_break()
+def build_with_edge() -> bool:
+    exe = _edge()
+    if not exe:
+        return False
+    cmd = [exe, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+           f"--print-to-pdf={PDF}", HTML.as_uri()]
+    return subprocess.run(cmd, capture_output=True).returncode == 0 and PDF.exists()
 
-# 1. Introduction
-add_heading('۱. مقدمه', level=1)
-add_para('سیستم نت (PM System) یک نرم‌افزار جامع نگهداری پیشگیرانه است که جهت مدیریت تجهیزات، برنامه‌ریزی سرویس‌ها، پیگیری دستور کارهای تعمیراتی، کنترل موجودی قطعات یدکی و تحلیل عملکرد در صنایع لبنی طراحی شده است. این سیستم با رابط کاربری فارسی و دسترسی مبتنی بر نقش، تمامی فرایندهای واحد نگهداری و تعمیرات را دیجیتالی می‌کند.')
 
-# 2. Login
-add_heading('۲. ورود به سیستم', level=1)
-add_para('برای ورود، نام کاربری و رمز عبور اختصاصی خود را وارد کنید. در صورت فراموشی رمز با مدیر سیستم تماس بگیرید.')
-add_para('نام کاربری پیش‌فرض مدیر سیستم: admin  |  رمز: ***REMOVED***', bold=True, color=RGBColor(0xDC,0x26,0x26))
+def main() -> int:
+    if not HTML.exists():
+        print("docs/manual/manual.html not found")
+        return 1
+    if build_with_playwright() or build_with_edge():
+        print(f"Manual saved: {PDF}")
+        return 0
+    print("Neither Playwright nor Microsoft Edge / Chrome was found.\n"
+          "Open docs/manual/manual.html in Edge and print it to PDF "
+          "(A4, background graphics on) as PM_System_Manual.pdf.")
+    return 1
 
-# 3. Roles and permissions
-add_heading('۳. نقش‌های کاربری و سطح دسترسی', level=1)
-add_para('سیستم دارای چهار نقش اصلی است که هرکدام مجوزهای خاص خود را دارند:')
-headers = ['نقش', 'توضیح', 'دسترسی‌های کلیدی']
-rows = [
-    ['مدیر سیستم (Admin)', 'بالاترین سطح دسترسی', 'مدیریت کاربران، مشاهده لاگ فعالیت، حذف اطلاعات، دسترسی کامل به تمام بخش‌ها'],
-    ['مدیر (Manager)', 'مدیر واحد نت', 'ایجاد و ویرایش تجهیزات، برنامه‌های PM، دستور کارها، قطعات، گزارش‌ها، تأیید نهایی کارها'],
-    ['کارشناس تولید (Production Expert)', 'اپراتور ارشد تولید', 'ایجاد و تأیید دستور کارها، مشاهده داشبورد و لیست تجهیزات'],
-    ['تکنسین (Technician)', 'تعمیرکار', 'شروع و اتمام دستور کارها، مشاهده داشبورد و تجهیزات، ثبت ساعات کار دستگاه'],
-]
-add_table(headers, rows)
 
-# 4. Main UI
-add_heading('۴. رابط کاربری اصلی', level=1)
-add_para('پس از ورود، پنجره اصلی شامل نوار کناری با گزینه‌های منو (داشبورد، تجهیزات، …) و قسمت محتوا نمایش داده می‌شود. نوار کناری قابلیت اسکرول دارد و با کلیک روی هر گزینه، بخش مربوطه باز می‌شود. در بالای نوار کناری، ساعت و تاریخ شمسی/میلادی نمایش داده می‌شود.')
-add_para('کلیدهای میانبر: Enter (تأیید/باز کردن جزئیات)، F5 (بروزرسانی)، Delete (حذف انتخاب‌شده)، Escape (تمام‌صفحه).', italic=True)
-
-doc.add_page_break()
-
-# 5. Admin
-add_heading('۵. راهنمای مدیر سیستم (Admin)', level=1)
-add_para('مدیر سیستم دسترسی کامل به تمامی ماژول‌ها دارد و می‌تواند کاربران را مدیریت کند، تمامی رکوردها را حذف کند و لاگ‌های فعالیت را ببیند.')
-
-# 5.1 Dashboard
-add_heading('۵.۱ داشبورد', level=2)
-add_para('صفحه اصلی پس از ورود، نمای کلی از وضعیت سیستم را نشان می‌دهد:')
-add_bullet('کارت‌های KPI: کل دستورات کار، تکمیل شده، در حال انجام، معوق، درصد رد کارها')
-add_bullet('نمودار وضعیت تجهیزات (عملیاتی/در تعمیر/خراب)')
-add_bullet('نمودار توزیع PM/CM/EM')
-add_bullet('جدول تجهیزات پرریسک')
-add_bullet('لیست آخرین رویدادها')
-add_para('مدیر سیستم می‌تواند از طریق دکمه‌های عملیات سریع (افزودن تجهیز، دستور کار جدید و ...) مستقیماً به بخش مربوطه برود.')
-
-# 5.2 Equipment
-add_heading('۵.۲ مدیریت تجهیزات', level=2)
-add_para('در این بخش لیست تمام تجهیزات به همراه وضعیت نمایش داده می‌شود. مدیر سیستم می‌تواند:')
-add_bullet('افزودن تجهیز جدید: کلیک روی دکمه «➕ افزودن تجهیز» و پر کردن فرم (کد، نام، دسته‌بندی، موقعیت و ...). فیلدهای طول، عرض، قطر، ارتفاع، حجم و وزن نیز موجود است.')
-add_bullet('ویرایش تجهیز: انتخاب یک ردیف و کلیک روی «✏️ ویرایش» یا دابل‌کلیک.')
-add_bullet('تغییر وضعیت: انتخاب تجهیز و کلیک روی «🔄 تغییر وضعیت» و انتخاب وضعیت جدید.')
-add_bullet('مدیریت دسته‌بندی‌ها: با کلیک روی «🏷️ دسته‌بندی‌ها» می‌توان دسته‌ها را اضافه، ویرایش یا حذف کرد (در صورت عدم استفاده).')
-add_bullet('مدیریت موقعیت‌ها: مشابه دسته‌بندی‌ها.')
-add_bullet('حذف تجهیز: فقط مدیر سیستم. با انتخاب تجهیز و کلیک روی «🗑️ حذف» و تأیید، تمامی داده‌های مرتبط (دستورکارها، بازرسی‌ها، برنامه‌های PM) نیز حذف می‌شود.')
-add_bullet('خروجی Excel: با کلیک روی «📤 خروجی Excel» لیست تجهیزات به صورت فایل Excel ذخیره می‌شود.')
-add_para('فیلترها: می‌توان بر اساس کد، نام، دسته و وضعیت جستجو کرد.')
-
-# 5.3 PM Schedules
-add_heading('۵.۳ برنامه‌های نگهداری پیشگیرانه', level=2)
-add_para('مدیر سیستم و مدیر می‌توانند برنامه‌های دوره‌ای تعریف کنند. برای افزودن:')
-add_bullet('کلیک روی «➕ افزودن برنامه»')
-add_bullet('انتخاب تجهیز، تکنسین، دوره تناوب (روزانه، هفتگی، ...)، تاریخ شروع (اولین سررسید)، چک‌لیست و توضیحات.')
-add_bullet('برنامه‌ها به صورت خودکار در تاریخ سررسید، دستور کار جدید تولید می‌کنند (در صورت تأیید مدیر).')
-add_bullet('امکان ویرایش، فعال/غیرفعال و حذف برنامه وجود دارد.')
-add_bullet('حذف برنامه فقط در صورتی ممکن است که دستور کار مرتبط نداشته باشد، در غیر این صورت ابتدا آن‌ها حذف می‌شوند.')
-
-# 5.4 Work Orders
-add_heading('۵.۴ مدیریت دستور کارها', level=2)
-add_para('این ماژول قلب سیستم است. گردش کار به صورت زیر می‌باشد:')
-add_bullet('ایجاد: توسط مدیر یا کارشناس تولید. انتخاب تجهیز، نوع (اصلاحی/پیشگیرانه/بازرسی)، اولویت، تکنسین(های) اصلی و اضافی، اپراتور، تاریخ و توضیحات.')
-add_bullet('تأیید ایجاد (در صورت PM خودکار): توسط مدیر یا کارشناس تولید → وضعیت "در انتظار"')
-add_bullet('شروع کار: توسط تکنسین. زمان شروع ثبت می‌شود → "در حال انجام"')
-add_bullet('اتمام کار: تکنسین ابتدا زمان پایان را انتخاب، سپس قطعات مصرفی و هزینه‌ها را ثبت می‌کند → "درخواست اتمام"')
-add_bullet('تأیید نهایی: **فقط مدیر** می‌تواند پس از بررسی، کار را تأیید کند → "تایید شده"')
-add_bullet('رد اتمام: در صورت نقص، مدیر کار را رد کرده و یک دستور کار جدید برای ادامه ایجاد می‌شود → "رد شده"')
-add_para('مدیر سیستم می‌تواند هر دستور کاری را حذف کند (با رعایت وابستگی‌ها).')
-add_para('در لیست، ستون‌های اولویت، تجهیز، تکنسین‌ها (اصلی + اضافی)، هزینه کل و والد قابل مشاهده است. فیلتر وضعیت و دسته‌بندی تجهیز نیز وجود دارد.')
-
-# 5.5 Inspections
-add_heading('۵.۵ بازرسی‌ها', level=2)
-add_para('مدیر سیستم و مدیر می‌توانند قالب‌های بازرسی ایجاد کنند و نتایج را ببینند:')
-add_bullet('مدیریت قالب‌ها: ایجاد/ویرایش قالب با نام، تجهیز، دوره و چک‌پوینت‌ها (بصری، اندازه‌گیری، ...).')
-add_bullet('انجام بازرسی: تکنسین یا مدیر یک جلسه بازرسی را شروع می‌کند، نتایج هر چک‌پوینت را ثبت (قبول/رد/جزئی) و در پایان ذخیره می‌کند.')
-add_bullet('مشاهده جزئیات: با دابل‌کلیک روی هر بازرسی، نتایج کامل نمایش داده می‌شود.')
-
-# 5.6 Spare Parts
-add_heading('۵.۶ قطعات یدکی', level=2)
-add_para('مدیریت انبار قطعات:')
-add_bullet('افزودن قطعه با شماره فنی، نام، موجودی، حداقل موجودی، قیمت.')
-add_bullet('ورود/خروج قطعه: ثبت تراکنش با تعیین تعداد و مرجع (مثلاً شماره دستور کار).')
-add_bullet('هشدار کمبود: قطعاتی که موجودی آن‌ها به حداقل رسیده، در داشبورد نمایش داده می‌شوند.')
-add_bullet('حذف و ویرایش قطعات فقط توسط مدیر سیستم/مدیر.')
-
-# 5.7 Reports
-add_heading('۵.۷ گزارشات', level=2)
-add_para('بخش گزارشات شامل ۶ تب تخصصی است که همگی تحت تأثیر فیلتر تاریخ قرار دارند:')
-add_bullet('داشبورد کلی: KPIهای اصلی، تحلیل معوقات، درصد رد.')
-add_bullet('عملکرد تجهیزات: جدول با امکان جستجو و فیلتر دسته، شامل MTBF، MTTR، OEE، هزینه کل.')
-add_bullet('تحلیل KPI: روند ماهانه، انطباق برنامه‌ها، ریسک تجهیزات.')
-add_bullet('تحلیل هزینه: توزیع هزینه‌ها بر اساس نوع کار و قطعه.')
-add_bullet('عملکرد تکنسین‌ها: نرخ تکمیل و میانگین زمان.')
-add_bullet('تحلیل خرابی‌ها: پرتکرارترین علل خرابی.')
-add_para('هر تب دکمه خروجی Excel مجزا دارد.')
-
-# 5.8 User Management
-add_heading('۵.۸ مدیریت کاربران', level=2)
-add_para('فقط مدیر سیستم می‌تواند کاربران را مدیریت کند:')
-add_bullet('افزودن کاربر: نام کاربری، نام کامل، شماره پرسنلی، واحد خدمت، نقش، رمز عبور.')
-add_bullet('ویرایش و غیرفعال/فعال‌سازی کاربران.')
-add_bullet('حذف کاربر: کلیه ارجاعات (دستورکارها، برنامه‌ها) به NULL تنظیم می‌شوند و سپس کاربر حذف می‌گردد.')
-add_para('نقش‌ها: مدیر سیستم، مدیر، کارشناس تولید، تکنسین.')
-
-# 5.9 Activity Log
-add_heading('۵.۹ لاگ فعالیت', level=2)
-add_para('تمامی اقدامات مهم (ایجاد، ویرایش، حذف) توسط کاربران در این بخش ثبت می‌شود. فقط مدیر سیستم قادر به مشاهده آن است. می‌توان بر اساس نام کاربری و نوع موجودیت جستجو کرد.')
-
-# 5.10 Machine Hours
-add_heading('۵.۱۰ ساعات کار دستگاه', level=2)
-add_para('کاربران می‌توانند روزانه ساعات برنامه‌ریزی، کارکرد مفید، توقفات و میزان تولید را برای هر تجهیز ثبت کنند. این داده‌ها در محاسبات OEE و MTBF استفاده می‌شود.')
-
-doc.add_page_break()
-
-# 6. Manager
-add_heading('۶. راهنمای مدیر (Manager)', level=1)
-add_para('مدیر همانند مدیر سیستم به اکثر بخش‌ها دسترسی دارد، با این تفاوت‌ها:')
-add_bullet('نمی‌تواند کاربران را مدیریت کند (فقط مدیر سیستم).')
-add_bullet('نمی‌تواند لاگ فعالیت را ببیند.')
-add_bullet('حذف تجهیزات فقط توسط مدیر سیستم امکان‌پذیر است.')
-add_bullet('تأیید نهایی دستور کارها فقط توسط مدیر انجام می‌شود. (کارشناس تولید نمی‌تواند)')
-add_para('بقیه عملکردها (ایجاد/ویرایش تجهیزات، PM، قطعات، گزارشات، تأیید ایجاد دستور کار) مشابه مدیر سیستم است.')
-
-# 7. Production Expert
-add_heading('۷. راهنمای کارشناس تولید (Production Expert)', level=1)
-add_para('این نقش برای اپراتورهای ارشد طراحی شده است. دسترسی‌ها:')
-add_bullet('مشاهده داشبورد')
-add_bullet('مشاهده لیست تجهیزات (بدون امکان ویرایش یا حذف)')
-add_bullet('ایجاد دستور کار جدید (اصلاحی، پیشگیرانه، بازرسی) و تعیین تکنسین و اولویت.')
-add_bullet('تأیید ایجاد دستور کارهای PM خودکار')
-add_bullet('**نمی‌تواند** تأیید نهایی اتمام کار را انجام دهد (فقط مدیر).')
-add_bullet('دسترسی به گزارشات، مدیریت کاربران، قطعات یدکی و سایر بخش‌ها ندارد.')
-
-# 8. Technician
-add_heading('۸. راهنمای تکنسین (Technician)', level=1)
-add_para('تکنسین نقش اجرایی دارد:')
-add_bullet('مشاهده داشبورد و لیست تجهیزات.')
-add_bullet('مشاهده دستور کارهای محول‌شده به خود.')
-add_bullet('شروع کار: انتخاب یک دستور کار در وضعیت "در انتظار" و تعیین زمان شروع.')
-add_bullet('اتمام کار: انتخاب زمان پایان، ثبت قطعات مصرفی و هزینه‌های دستی، ارسال گزارش اتمام.')
-add_bullet('ثبت ساعات کارکرد دستگاه (با انتخاب تجهیز و وارد کردن ساعات).')
-add_para('تکنسین نمی‌تواند تجهیزات، برنامه‌های PM، قطعات یا کاربران را ویرایش کند.')
-
-doc.add_page_break()
-
-# 9. Common workflows
-add_heading('۹. فرایندهای متداول', level=1)
-
-add_heading('۹.۱ صدور دستور کار جدید', level=2)
-add_para('۱. از منوی «دستور کارها» روی «➕ دستور کار» کلیک کنید.')
-add_para('۲. تجهیز مورد نظر را از لیست جستجو انتخاب کنید.')
-add_para('۳. نوع (اصلاحی/پیشگیرانه/بازرسی) و اولویت را مشخص کنید.')
-add_para('۴. تکنسین اصلی و در صورت نیاز تکنسین‌های کمکی را از طریق دکمه‌های ➕/➖ اضافه کنید.')
-add_para('۵. اپراتور، تاریخ برنامه‌ریزی، ددلاین و توضیحات را وارد کنید.')
-add_para('۶. روی «ذخیره» کلیک کنید. دستور کار در وضعیت "در انتظار" ثبت می‌شود.')
-
-add_heading('۹.۲ انجام و اتمام دستور کار', level=2)
-add_para('۱. تکنسین از لیست، دستور کار "در انتظار" را انتخاب و روی «▶️ شروع کار» کلیک می‌کند. زمان شروع را انتخاب می‌کند.')
-add_para('۲. پس از اتمام تعمیرات، روی «📤 ارسال گزارش اتمام» کلیک می‌کند.')
-add_para('۳. ابتدا زمان پایان کار را تعیین می‌کند.')
-add_para('۴. در پنجره قطعات، قطعات مصرفی، هزینه دستی و توضیحات را وارد کرده و تأیید می‌کند.')
-add_para('۵. وضعیت به "درخواست اتمام" تغییر می‌کند.')
-
-add_heading('۹.۳ تأیید نهایی توسط مدیر', level=2)
-add_para('۱. مدیر از لیست، دستور کار "درخواست اتمام" را انتخاب می‌کند.')
-add_para('۲. روی «✅ تایید نهایی» کلیک کرده و در پیغام تأیید، Yes را می‌زند.')
-add_para('۳. وضعیت به "تایید شده" تغییر کرده و در صورت اتصال به برنامه PM، تاریخ سرویس بعدی بروز می‌شود.')
-
-add_heading('۹.۴ بازرسی فنی', level=2)
-add_para('۱. از منوی «بازرسی‌ها» یک قالب فعال را انتخاب و «شروع بازرسی» کنید.')
-add_para('۲. تجهیز را انتخاب کنید.')
-add_para('۳. برای هر چک‌پوینت نتیجه (قبول/رد/N/A) و توضیحات را ثبت کنید.')
-add_para('۴. در پایان روی «✅ تکمیل بازرسی» کلیک کنید. نتیجه کلی (قبول/رد/جزئی) محاسبه و ذخیره می‌شود.')
-
-add_heading('۹.۵ ثبت ساعات کارکرد دستگاه', level=2)
-add_para('از منوی «⏱️ ساعات کار دستگاه»، تجهیز را انتخاب، تاریخ، ساعات برنامه‌ریزی، کارکرد مفید، توقف و میزان تولید را وارد کرده و ذخیره کنید.')
-
-# 10. Keyboard shortcuts
-add_heading('۱۰. کلیدهای میانبر', level=1)
-headers = ['کلید', 'عملکرد']
-rows = [
-    ['Enter', 'باز کردن جزئیات / تأیید انتخاب'],
-    ['F5', 'بروزرسانی صفحه'],
-    ['Delete', 'حذف مورد(های) انتخاب‌شده'],
-    ['Escape', 'تبدیل حالت تمام‌صفحه'],
-    ['F2', 'ویرایش مورد انتخاب‌شده (در لیست‌ها)'],
-    ['Ctrl+N', 'افزودن آیتم جدید (در لیست‌ها)'],
-]
-add_table(headers, rows)
-
-# 11. Troubleshooting
-add_heading('۱۱. عیب‌یابی و سوالات متداول', level=1)
-add_para('۱. پیام "خطا در اتصال به پایگاه داده": مطمئن شوید کامپیوتر به شبکه داخلی متصل است و SQL Server در دسترس است.')
-add_para('۲. "نمی‌توان تجهیز را حذف کرد": ابتدا باید تمامی دستورکارها، برنامه‌های PM و بازرسی‌های مربوط به آن تجهیز پاک شوند (مدیر سیستم این امکان را دارد).')
-add_para('۳. "فقط کارهای در حال انجام قابل ارسال هستند": دستور کار باید ابتدا شروع شده باشد.')
-add_para('۴. "شما مجاز به تأیید نهایی نیستید": این عملکرد فقط برای نقش مدیر فعال است.')
-add_para('۵. برای افزودن دسته‌بندی یا موقعیت جدید، کافیست نام جدید را مستقیماً در کامبوباکس مربوطه تایپ کنید. با ذخیره تجهیز، آن نام به لیست اضافه می‌شود. برای ویرایش نام‌های موجود از دکمه‌های مدیریت دسته‌بندی/موقعیت استفاده کنید.')
-
-# Save
-doc.save('PM_System_Manual.docx')
-print('✅ Manual saved as PM_System_Manual.docx')
+if __name__ == "__main__":
+    sys.exit(main())

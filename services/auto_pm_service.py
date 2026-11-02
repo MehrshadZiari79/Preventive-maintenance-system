@@ -7,6 +7,7 @@ from database.db import SessionLocal
 from database.pm_repository import PMRepository
 from database.work_order_repository import WorkOrderRepository
 from database.models import Settings
+from utils.date_helpers import tehran_now  # Iranian (Asia/Tehran) clock
 
 
 class AutoPMService:
@@ -61,15 +62,15 @@ class AutoPMService:
                     lock_time = datetime.fromisoformat(current_lock.split('|')[1])
                 except:
                     lock_time = datetime.min
-                if (datetime.now() - lock_time).total_seconds() < 60:
+                if (tehran_now() - lock_time).total_seconds() < 60:
                     return
-            lock_record.value = f"{lock_id}|{datetime.now().isoformat()}"
+            lock_record.value = f"{lock_id}|{tehran_now().isoformat()}"
             db.commit()
             lock_acquired = True
 
             pm_repo = PMRepository(SessionLocal)
             wo_repo = WorkOrderRepository(SessionLocal)
-            due_schedules = pm_repo.get_due_schedules_ahead(datetime.now(), days_ahead=1)
+            due_schedules = pm_repo.get_due_schedules_ahead(tehran_now(), days_ahead=1)
 
             for pm in due_schedules:
                 existing = wo_repo.find_by_schedule_and_date(pm.id, pm.next_due)

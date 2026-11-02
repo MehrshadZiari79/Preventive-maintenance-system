@@ -1,19 +1,28 @@
 # views/users_view.py
 import tkinter as tk
+from views.ui_kit import rtl_columns  # RTL (right-to-left) table columns
 from tkinter import ttk, messagebox
+from datetime import datetime  # <-- ADD THIS IMPORT
 from database.user_repository import UserRepository
 from views.user_dialog import UserDialog
-from views.role_manager_dialog import RoleManagerDialog   # new import
-from utils.theme import (
-    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
-    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
-    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
-)
 from views.role_manager_dialog import RoleManagerDialog
+from utils.theme import (
+    NAVY, WHITE, GRAY_BG, GRAY_BORDER, TEXT_LIGHT, FONT_TITLE,
+    FONT_NORMAL, FONT_SMALL
+)
+from utils.date_helpers import to_jalali_date_str
+
 BG = GRAY_BG
 PRIMARY = NAVY
 
+# Persian names for the built-in roles (custom roles are shown as typed).
+_ROLE_FA = {"admin": "مدیر سیستم", "manager": "مدیر", "technician": "تکنسین", "production_expert": "کارشناس تولید"}
+
+
 class UsersView(tk.Frame):
+    # Rows are no longer tinted by status: the status badge shows it (views/ux.py).
+    ux_status_only_rows = True
+
     COLUMNS = {
         "id":              ("#",              50,  "center"),
         "username":        ("نام کاربری",    140,  "center"),
@@ -46,7 +55,7 @@ class UsersView(tk.Frame):
         header = tk.Frame(self, bg=PRIMARY, height=56)
         header.pack(fill="x")
         header.pack_propagate(False)
-        tk.Label(header, text="👥  مدیریت کاربران", bg=PRIMARY, fg=WHITE, font=FONT_TITLE).pack(expand=True)
+        tk.Label(header, text="👥  مدیریت کاربران", bg=PRIMARY, fg=WHITE, font=FONT_TITLE).pack(side="right", padx=20)
 
     def _build_toolbar(self):
         bar = tk.Frame(self, bg=WHITE, pady=8, padx=12)
@@ -68,12 +77,14 @@ class UsersView(tk.Frame):
         dlg = RoleManagerDialog(self, callback=lambda: self.load_users())
         self.wait_window(dlg)
         self.load_users()
+
     def _build_table(self):
         container = tk.Frame(self, bg=BG)
         container.pack(fill="both", expand=True, padx=12, pady=8)
 
         cols = list(self.COLUMNS.keys())
         self.tree = ttk.Treeview(container, columns=cols, show="headings", selectmode="browse")
+        rtl_columns(self.tree)  # RTL column order
         for col, (heading, width, anchor) in self.COLUMNS.items():
             self.tree.heading(col, text=heading, command=lambda c=col: self._sort(c))
             self.tree.column(col, width=width, anchor=anchor, minwidth=40)
@@ -112,14 +123,18 @@ class UsersView(tk.Frame):
                 tag = "admin_row"
             created_dt = u.get("created_at")
             if created_dt and hasattr(created_dt, 'strftime'):
-                created_str = created_dt.strftime("%Y-%m-%d")
+                created_str = to_jalali_date_str(created_dt)
             elif isinstance(created_dt, str):
-                created_str = created_dt[:10]
+                try:
+                    dt = datetime.strptime(created_dt[:10], "%Y-%m-%d")
+                    created_str = to_jalali_date_str(dt)
+                except:
+                    created_str = created_dt[:10]
             else:
                 created_str = "—"
             self.tree.insert("", "end", iid=str(u["id"]),
                              values=(u["id"], u["username"], u["full_name"],
-                                     u["role"], u.get("personnel_code", ""),
+                                     _ROLE_FA.get(u["role"], u["role"]), u.get("personnel_code", ""),
                                      u.get("service_unit", ""), status, created_str),
                              tags=(tag,))
         self.status_var.set(f"تعداد کاربران: {len(data)}")
@@ -134,9 +149,14 @@ class UsersView(tk.Frame):
             return
         if not messagebox.askyesno("حذف", f"آیا از حذف {len(selected)} کاربر اطمینان دارید؟"):
             return
+        errors = []
         for uid in selected:
-            self.user_repo.delete_user(int(uid))
+            ok, msg = self.user_repo.delete_user(int(uid))
+            if not ok:
+                errors.append(msg)
         self.load_users()
+        if errors:
+            messagebox.showerror("خطا", "\n".join(errors[:5]))
 
     def _on_search(self):
         keyword = self.search_var.get().strip()
@@ -199,5 +219,17 @@ class UsersView(tk.Frame):
             ok, msg = self.user_repo.delete_user(uid)
             if ok:
                 self.load_users()
+            elif user.get("is_active") and "غیرفعال" in msg:
+                if messagebox.askyesno("حذف ممکن نیست", msg + "\n\nکاربر الان غیرفعال شود؟"):
+                    ok2, msg2 = self.user_repo.toggle_active(uid)
+                    if ok2:
+                        self.load_users()
+                    else:
+                        messagebox.showerror("خطا", msg2)
             else:
                 messagebox.showerror("خطا", msg)
+
+    def ux_footer_spec(self):
+        """Filters shown as removable chips under the table (views/ux.py)."""
+        return {"filters": [("جستجو", self.search_var, "")], "noun": "کاربر"}
+

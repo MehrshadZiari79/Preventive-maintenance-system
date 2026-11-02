@@ -3,14 +3,13 @@
 Inspection Repository - Data Access Layer for Inspection Management
 """
 from typing import Optional, List
-from datetime import datetime
 from sqlalchemy import func, case, and_
 from sqlalchemy.orm import joinedload
 from database.models import (
     InspectionTemplate, InspectionCheckpoint,
-    Inspection, InspectionResult,
-    Equipment, User
+    Inspection, InspectionResult
 )
+from utils.date_helpers import tehran_now  # Iranian (Asia/Tehran) clock
 
 
 class InspectionRepository:
@@ -95,7 +94,7 @@ class InspectionRepository:
             template.equipment_id = equipment_id
             template.frequency = frequency
             template.estimated_duration_minutes = estimated_duration_minutes
-            template.updated_at = datetime.utcnow()
+            template.updated_at = tehran_now()
             session.commit()
             return True, "الگو بروزرسانی شد."
         except Exception as e:
@@ -113,7 +112,7 @@ class InspectionRepository:
             if not template:
                 return False, "الگو یافت نشد."
             template.is_active = not template.is_active
-            template.updated_at = datetime.utcnow()
+            template.updated_at = tehran_now()
             session.commit()
             status = "فعال" if template.is_active else "غیرفعال"
             return True, f"الگو {status} شد."
@@ -208,14 +207,17 @@ class InspectionRepository:
         finally:
             session.close()
 
-    def get_all_inspections(self) -> List[Inspection]:
+    def get_all_inspections(self, limit=None) -> List[Inspection]:
         session = self.Session()
         try:
-            inspections = session.query(Inspection).options(
+            query = session.query(Inspection).options(
                 joinedload(Inspection.template),
                 joinedload(Inspection.equipment),
                 joinedload(Inspection.inspector)
-            ).order_by(Inspection.started_at.desc()).all()
+            ).order_by(Inspection.started_at.desc())
+            if limit:
+                query = query.limit(int(limit))
+            inspections = query.all()
             return inspections if inspections else []
         except Exception as e:
             print(f"Error loading inspections: {e}")
@@ -261,7 +263,7 @@ class InspectionRepository:
                 template_id=template_id,
                 equipment_id=equipment_id,
                 inspector_id=inspector_id,
-                started_at=datetime.utcnow(),
+                started_at=tehran_now(),
                 status="in_progress"
             )
             session.add(inspection)
@@ -283,7 +285,7 @@ class InspectionRepository:
             ).first()
             if not inspection:
                 return False, "بازرسی یافت نشد."
-            inspection.completed_at = datetime.utcnow()
+            inspection.completed_at = tehran_now()
             inspection.status = "completed"
             inspection.overall_result = overall_result
             inspection.notes = notes or None
@@ -335,7 +337,7 @@ class InspectionRepository:
             if existing:
                 existing.result = result
                 existing.comment = comment or None
-                existing.recorded_at = datetime.utcnow()
+                existing.recorded_at = tehran_now()
             else:
                 new_result = InspectionResult(
                     inspection_id=inspection_id,

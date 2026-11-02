@@ -143,39 +143,77 @@ class UserRepository:
         finally:
             session.close()
 
+    def get_history_counts(self, user_id: int) -> dict:
+        """Records that reference this user (work history / audit trail)."""
+        from sqlalchemy import or_, func
+        from database.models import RepairRequestDocument, RepairRequestCompletion
+        session = self.Session()
+        try:
+            counts = {
+                "work_orders": session.query(func.count(WorkOrder.id)).filter(or_(
+                    WorkOrder.technician_id == user_id,
+                    WorkOrder.supervisor_id == user_id,
+                    WorkOrder.operator_id == user_id,
+                )).scalar() or 0,
+                "work_order_assignments": session.query(func.count()).select_from(
+                    work_order_technicians).filter(
+                    work_order_technicians.c.user_id == user_id).scalar() or 0,
+                "inspections": session.query(func.count(Inspection.id)).filter(
+                    Inspection.inspector_id == user_id).scalar() or 0,
+                "repair_requests": session.query(func.count(RepairRequestDocument.id)).filter(
+                    RepairRequestDocument.created_by_user_id == user_id).scalar() or 0,
+                "repair_completions": session.query(func.count(RepairRequestCompletion.id)).filter(
+                    RepairRequestCompletion.completed_by_user_id == user_id).scalar() or 0,
+                "activity_logs": session.query(func.count(ActivityLog.id)).filter(
+                    ActivityLog.user_id == user_id).scalar() or 0,
+            }
+            return counts
+        finally:
+            session.close()
+
     def delete_user(self, user_id: int) -> tuple[bool, str]:
+        """
+        Delete a user only when nothing in the system refers to them.
+
+        A user with work history (work orders, inspections, repair requests,
+        activity log) is kept so that reports and the audit trail stay
+        complete; such users should be deactivated instead.
+        """
+        try:
+            counts = self.get_history_counts(user_id)
+        except Exception as e:
+            return False, f"خطای پایگاه داده: {e}"
+
+        labels = {
+            "work_orders": "دستور کار",
+            "work_order_assignments": "تخصیص دستور کار",
+            "inspections": "بازرسی",
+            "repair_requests": "درخواست تعمیر",
+            "repair_completions": "اتمام درخواست تعمیر",
+            "activity_logs": "رکورد لاگ فعالیت",
+        }
+        used = [f"{n} {labels[k]}" for k, n in counts.items() if n]
+        if used:
+            return False, (
+                "این کاربر در سوابق سیستم ثبت شده است ("
+                + "، ".join(used)
+                + ") و برای حفظ سوابق قابل حذف نیست.\n"
+                "به‌جای حذف، کاربر را «غیرفعال» کنید تا دیگر نتواند وارد شود."
+            )
+
         session = self.Session()
         try:
             user = session.query(User).filter(User.id == user_id).first()
             if not user:
                 return False, "کاربر یافت نشد."
-
-            # 1. Remove from many-to-many work_order_technicians
-            session.execute(work_order_technicians.delete().where(work_order_technicians.c.user_id == user_id))
-
-            # 2. Delete activity logs
-            session.query(ActivityLog).filter(ActivityLog.user_id == user_id).delete(synchronize_session=False)
-
-            # 3. Delete inspections
-            session.query(Inspection).filter(Inspection.inspector_id == user_id).delete(synchronize_session=False)
-
-            # 4. Nullify references in WorkOrders
-            session.query(WorkOrder).filter(WorkOrder.technician_id == user_id).update(
-                {WorkOrder.technician_id: None}, synchronize_session=False)
-            session.query(WorkOrder).filter(WorkOrder.supervisor_id == user_id).update(
-                {WorkOrder.supervisor_id: None}, synchronize_session=False)
-            session.query(WorkOrder).filter(WorkOrder.operator_id == user_id).update(
-                {WorkOrder.operator_id: None}, synchronize_session=False)
-
-            # 5. Nullify technician_id in PM Schedules
+            # legacy PM technician assignment is not history - just detach it
             session.query(PMSchedule).filter(PMSchedule.technician_id == user_id).update(
                 {PMSchedule.technician_id: None}, synchronize_session=False)
-
-            # 6. Delete the user
+            username = user.username
             session.delete(user)
             session.commit()
-            log_action("DELETE", "user", user_id, "")
-            return True, "کاربر و تمام اطلاعات مرتبط با موفقیت حذف شد."
+            log_action("DELETE", "user", user_id, f"نام کاربری: {username}")
+            return True, "کاربر حذف شد."
         except Exception as e:
             session.rollback()
             return False, f"خطای پایگاه داده: {e}"

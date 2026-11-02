@@ -1,5 +1,6 @@
 # views/spare_parts_view.py
 import tkinter as tk
+from views.ui_kit import rtl_columns  # RTL (right-to-left) table columns
 from tkinter import ttk, messagebox
 from services.spare_parts_service import SparePartsService
 from views.export_dialog import run_spare_parts_export
@@ -9,6 +10,7 @@ from utils.theme import (
     TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
     FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
 )
+from utils.date_helpers import to_jalali_datetime_str
 
 BG = GRAY_BG
 CARD_BG = WHITE
@@ -20,14 +22,19 @@ TEXT = TEXT_DARK
 SUBTLE = TEXT_LIGHT
 BORDER = GRAY_BORDER
 
+
 class SparePartsView(ttk.Frame):
+    # ... (keep your existing SparePartsView code unchanged)
+    # I'll include the full class for completeness.
+
     def __init__(self, parent, session_factory, current_user):
         super().__init__(parent)
         self.session_factory = session_factory
         self.service = SparePartsService(session_factory)
         self.current_user = current_user
-        self.can_manage = (current_user["role"] in ["admin", "manager", "technician"]
-                           or AuthManager.can_access("spare_parts", "write"))
+        # built-in roles as before; custom roles from «مدیریت نقش‌ها»
+        self.can_manage = AuthManager.allows(("admin", "manager", "technician"), "spare_parts", "write")
+        self.can_delete = AuthManager.allows(("admin", "manager", "technician"), "spare_parts", "delete")
 
         self._setup_ui()
         self._load()
@@ -102,6 +109,7 @@ class SparePartsView(ttk.Frame):
         columns = ("id", "part_number", "name", "category",
                    "stock", "min_stock", "unit", "price", "location")
         self.tree = ttk.Treeview(container, columns=columns, show="headings", height=16)
+        rtl_columns(self.tree)  # RTL column order
 
         headers = [
             ("id",          "شناسه",        50,  "center"),
@@ -124,9 +132,9 @@ class SparePartsView(ttk.Frame):
         vsb.pack(side="right", fill="y")
 
         self.tree.configure(selectmode='extended')
-        self.tree.bind("<Delete>", lambda e: self._delete_selected())
-        self.tree.bind("<F2>",      lambda e: self._edit_part() if self.can_manage else self._view_history())
-        self.tree.bind("<Control-n>", lambda e: self._add_part())
+        self.tree.bind("<Delete>", lambda e=None: self._delete_selected())
+        self.tree.bind("<F2>",      lambda e=None: self._edit_part() if self.can_manage else self._view_history())
+        self.tree.bind("<Control-n>", lambda e=None: self._add_part())
 
         style = ttk.Style()
         style.configure("Treeview", background=CARD_BG, fieldbackground=CARD_BG, foreground=TEXT, rowheight=26)
@@ -134,7 +142,7 @@ class SparePartsView(ttk.Frame):
         style.map("Treeview", background=[("selected", PRIMARY)], foreground=[("selected", WHITE)])
 
         self.tree.bind("<Button-3>", self._context_menu)
-        self.tree.bind("<Double-1>", lambda e: self._edit_part() if self.can_manage else self._view_history())
+        self.tree.bind("<Double-1>", lambda e=None: self._edit_part() if self.can_manage else self._view_history())
 
     def _load(self):
         parts = self.service.get_all_parts()
@@ -193,7 +201,7 @@ class SparePartsView(ttk.Frame):
         SparePartForm(self, self.session_factory, part=part, callback=self._load)
 
     def _delete_part(self):
-        if not self.can_manage:
+        if not self.can_delete:
             messagebox.showwarning("دسترسی", "شما مجاز به حذف قطعه نیستید.", parent=self)
             return
         selected = self.tree.selection()
@@ -213,7 +221,7 @@ class SparePartsView(ttk.Frame):
             messagebox.showerror("خطا", str(e))
 
     def _delete_selected(self):
-        if not self.can_manage:
+        if not self.can_delete:
             return
         selected = self.tree.selection()
         if not selected:
@@ -271,62 +279,153 @@ class SparePartsView(ttk.Frame):
             menu.add_command(label="✏️ ویرایش", command=self._edit_part)
             menu.add_command(label="📥 ورود به انبار", command=self._stock_in)
             menu.add_command(label="📤 خروج از انبار", command=self._stock_out)
-            menu.add_separator()
-            menu.add_command(label="🗑️ حذف", command=self._delete_part)
+            if self.can_delete:
+                menu.add_separator()
+                menu.add_command(label="🗑️ حذف", command=self._delete_part)
         else:
             menu.add_command(label="🔍 مشاهده تاریخچه", command=self._view_history)
         menu.post(event.x_root, event.y_root)
 
 
+# ── FIXED SPARE PART FORM ──────────────────────────────────────────
+
+    def ux_footer_spec(self):
+        """Filters shown as removable chips under the table (views/ux.py)."""
+        return {"filters": [("جستجو", self.search_var, "")], "apply": self._load,
+                "noun": "قطعه"}
+
+
 class SparePartForm(tk.Toplevel):
     def __init__(self, parent, session_factory, part=None, callback=None):
         super().__init__(parent)
+
         self.session_factory = session_factory
         self.service = SparePartsService(session_factory)
         self.part = part
         self.callback = callback
 
         self.title("ویرایش قطعه" if part else "افزودن قطعه جدید")
-        self.geometry("600x700")
         self.configure(bg=BG)
-        self.resizable(False, False)
+        self.resizable(True, True)
+        self.minsize(600, 650)
 
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - 600) // 2
-        y = (self.winfo_screenheight() - 700) // 2
-        self.geometry(f"+{x}+{y}")
+        # A slightly larger default size gives the form enough room while
+        # still fitting comfortably on standard screens.
+        self.geometry("680x780")
+        self._center(680, 780)
+
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self._setup_ui()
+
         if part:
             self._load_data()
 
+    def _center(self, width, height):
+        self.update_idletasks()
+
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+
+        # Keep the window inside the usable screen area.
+        height = min(height, max(650, screen_height - 80))
+
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
     def _setup_ui(self):
+        # Root layout:
+        # row 0 = header
+        # row 1 = scrollable form
+        # row 2 = fixed action footer
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
         # ── Header ──────────────────────────────────────────────
-        header = tk.Frame(self, bg=PRIMARY, height=50)
-        header.pack(fill="x")
+        header = tk.Frame(self, bg=PRIMARY, height=58)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
+
         title = "✏️ ویرایش قطعه" if self.part else "➕ افزودن قطعه جدید"
-        tk.Label(header, text=title, font=FONT_HEADING, bg=PRIMARY, fg=WHITE).pack(pady=12)
 
-        # ── Scrollable area ────────────────────────────────────
-        canvas = tk.Canvas(self, bg=BG, highlightthickness=0)
-        vsb = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
-        scrollable = tk.Frame(canvas, bg=BG)
+        tk.Label(
+            header,
+            text=title,
+            font=FONT_HEADING,
+            bg=PRIMARY,
+            fg=WHITE
+        ).pack(expand=True)
 
-        scrollable.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        # ── Scrollable content ─────────────────────────────────
+        content = tk.Frame(self, bg=BG)
+        content.grid(row=1, column=0, sticky="nsew")
+        content.grid_rowconfigure(0, weight=1)
+        content.grid_columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(
+            content,
+            bg=BG,
+            highlightthickness=0,
+            bd=0
         )
-        canvas.create_window((0, 0), window=scrollable, anchor="nw")
+        self._form_canvas = canvas
+
+        vsb = ttk.Scrollbar(
+            content,
+            orient="vertical",
+            command=canvas.yview
+        )
+
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+
         canvas.configure(yscrollcommand=vsb.set)
 
-        canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        vsb.pack(side="right", fill="y")
+        scrollable = tk.Frame(canvas, bg=BG)
+        window_id = canvas.create_window(
+            (0, 0),
+            window=scrollable,
+            anchor="nw"
+        )
 
-        # ── Form inside scrollable ─────────────────────────────
-        main = tk.Frame(scrollable, bg=CARD_BG, padx=20, pady=20)
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def resize_scrollable(event):
+            # Critical fix: make the form follow the visible canvas width.
+            # This prevents fields from extending beyond the right edge.
+            canvas.itemconfigure(window_id, width=event.width)
+
+        scrollable.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", resize_scrollable)
+
+        # Mouse wheel only affects this form.
+        canvas.bind("<MouseWheel>", self._on_mousewheel)
+        canvas.bind("<Button-4>", self._on_mousewheel)
+        canvas.bind("<Button-5>", self._on_mousewheel)
+
+        # ── Form card ──────────────────────────────────────────
+        main = tk.Frame(
+            scrollable,
+            bg=CARD_BG,
+            padx=30,
+            pady=20
+        )
         main.pack(fill="both", expand=True)
 
-        tk.Label(main, text="🔧 اطلاعات قطعه", font=FONT_TITLE, bg=CARD_BG, fg=PRIMARY).pack(pady=(0,15))
+        tk.Label(
+            main,
+            text="🔧 اطلاعات قطعه",
+            font=FONT_TITLE,
+            bg=CARD_BG,
+            fg=PRIMARY
+        ).pack(pady=(0, 15))
+
+        self.entries = {}
 
         fields = [
             ("شماره قطعه *:", "part_number"),
@@ -343,76 +442,221 @@ class SparePartForm(tk.Toplevel):
             ("یادداشت:", "notes"),
         ]
 
-        self.entries = {}
         for label, field in fields:
-            frm = tk.Frame(main, bg=CARD_BG)
-            frm.pack(fill="x", pady=6)
-            tk.Label(frm, text=label, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, width=18, anchor="e").pack(side="right", padx=(0,10))
+            tk.Label(
+                main,
+                text=label,
+                font=FONT_NORMAL,
+                bg=CARD_BG,
+                fg=TEXT,
+                anchor="e"
+            ).pack(
+                fill="x",
+                pady=(5, 2)
+            )
+
             if field in ("description", "notes"):
-                widget = tk.Text(frm, height=3, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, relief="solid", bd=1)
-                widget.pack(side="right", fill="x", expand=True)
+                widget = tk.Text(
+                    main,
+                    height=3,
+                    font=FONT_NORMAL,
+                    bg=CARD_BG,
+                    fg=TEXT,
+                    relief="solid",
+                    bd=1,
+                    wrap="word"
+                )
+                widget.pack(
+                    fill="x",
+                    pady=(0, 8)
+                )
             else:
-                widget = tk.Entry(frm, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, relief="solid", bd=1)
-                widget.pack(side="right", fill="x", expand=True)
+                widget = tk.Entry(
+                    main,
+                    font=FONT_NORMAL,
+                    bg=CARD_BG,
+                    fg=TEXT,
+                    relief="solid",
+                    bd=1,
+                    justify="right"
+                )
+                widget.pack(
+                    fill="x",
+                    ipady=4,
+                    pady=(0, 8)
+                )
+
             self.entries[field] = widget
 
-        # ── Buttons ──────────────────────────────────────────────
-        btn_frame = tk.Frame(main, bg=CARD_BG)
-        btn_frame.pack(pady=20)
-        tk.Button(btn_frame, text="ذخیره", font=FONT_NORMAL,
-                  bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=20, pady=6, command=self._save).pack(side="right", padx=8)
-        tk.Button(btn_frame, text="انصراف", font=FONT_NORMAL,
-                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
-                  padx=20, pady=6, command=self.destroy).pack(side="right", padx=8)
+        # ── Fixed footer ───────────────────────────────────────
+        footer = tk.Frame(
+            self,
+            bg=CARD_BG,
+            highlightbackground=BORDER,
+            highlightthickness=1
+        )
+        footer.grid(row=2, column=0, sticky="ew")
+
+        button_row = tk.Frame(footer, bg=CARD_BG)
+        button_row.pack(anchor="center", pady=12)
+
+        tk.Button(
+            button_row,
+            text="انصراف",
+            font=FONT_NORMAL,
+            bg=BORDER,
+            fg=TEXT,
+            activebackground=BORDER,
+            activeforeground=TEXT,
+            relief="flat",
+            cursor="hand2",
+            padx=28,
+            pady=8,
+            command=self.destroy
+        ).pack(side="left", padx=6)
+
+        tk.Button(
+            button_row,
+            text="ذخیره",
+            font=FONT_NORMAL,
+            bg=SUCCESS,
+            fg=WHITE,
+            activebackground=SUCCESS,
+            activeforeground=WHITE,
+            relief="flat",
+            cursor="hand2",
+            padx=30,
+            pady=8,
+            command=self._save
+        ).pack(side="left", padx=6)
+
+        self.bind("<Escape>", lambda _event: self.destroy())
+        self.bind("<Control-s>", lambda _event: self._save())
+
+        self.after(50, lambda: canvas.configure(
+            scrollregion=canvas.bbox("all")
+        ))
+
+    def _on_mousewheel(self, event):
+        try:
+            if event.num == 4:
+                self._form_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                self._form_canvas.yview_scroll(1, "units")
+            else:
+                self._form_canvas.yview_scroll(
+                    -1 if event.delta > 0 else 1,
+                    "units"
+                )
+        except tk.TclError:
+            pass
 
     def _load_data(self):
+        if not self.part:
+            return
+
         for field, widget in self.entries.items():
             value = getattr(self.part, field, "")
+
             if value is None:
                 value = ""
+
             if isinstance(widget, tk.Text):
+                widget.delete("1.0", tk.END)
                 widget.insert("1.0", str(value))
             else:
+                widget.delete(0, tk.END)
                 widget.insert(0, str(value))
 
     def _save(self):
         data = {}
+
         for field, widget in self.entries.items():
             if isinstance(widget, tk.Text):
-                data[field] = widget.get("1.0", "end-1c").strip()
+                data[field] = widget.get(
+                    "1.0",
+                    "end-1c"
+                ).strip()
             else:
                 data[field] = widget.get().strip()
 
-        if not data["part_number"] or not data["name"]:
-            messagebox.showerror("خطا", "شماره قطعه و نام قطعه الزامی هستند.")
+        if not data.get("part_number") or not data.get("name"):
+            from views.ux import field_error
+            if not data.get("part_number"):
+                field_error(self.entries["part_number"], "شماره قطعه الزامی است.")
+            if not data.get("name"):
+                field_error(self.entries["name"], "نام قطعه الزامی است.",
+                            focus=bool(data.get("part_number")))
             return
 
         try:
-            data["min_stock"] = int(data["min_stock"]) if data["min_stock"] else 0
-            data["current_stock"] = int(data["current_stock"]) if data["current_stock"] else 0
-            data["unit_price"] = float(data["unit_price"]) if data["unit_price"] else 0.0
+            data["min_stock"] = (
+                int(data.get("min_stock", 0))
+                if data.get("min_stock")
+                else 0
+            )
+            data["current_stock"] = (
+                int(data.get("current_stock", 0))
+                if data.get("current_stock")
+                else 0
+            )
+            data["unit_price"] = (
+                float(data.get("unit_price", 0))
+                if data.get("unit_price")
+                else 0.0
+            )
         except ValueError:
-            messagebox.showerror("خطا", "مقادیر عددی نامعتبر هستند.")
+            messagebox.showerror(
+                "خطا",
+                "مقادیر عددی نامعتبر هستند.",
+                parent=self
+            )
             return
 
         try:
             if self.part:
-                self.service.update_part(self.part.id, data)
-                messagebox.showinfo("موفق", "قطعه با موفقیت ویرایش شد.")
+                self.service.update_part(
+                    self.part.id,
+                    data
+                )
+                messagebox.showinfo(
+                    "موفق",
+                    "قطعه با موفقیت ویرایش شد.",
+                    parent=self
+                )
             else:
                 self.service.create_part(data)
-                messagebox.showinfo("موفق", "قطعه با موفقیت اضافه شد.")
+                messagebox.showinfo(
+                    "موفق",
+                    "قطعه با موفقیت اضافه شد.",
+                    parent=self
+                )
+
             if self.callback:
                 self.callback()
+
             self.destroy()
+
         except Exception as e:
-            messagebox.showerror("خطا", str(e))
+            messagebox.showerror(
+                "خطا",
+                str(e),
+                parent=self
+            )
 
 
 class StockTransactionForm(tk.Toplevel):
-    def __init__(self, parent, session_factory, part, trans_type, work_order_id=None, callback=None):
+    def __init__(
+        self,
+        parent,
+        session_factory,
+        part,
+        trans_type,
+        work_order_id=None,
+        callback=None
+    ):
         super().__init__(parent)
+
         self.session_factory = session_factory
         self.service = SparePartsService(session_factory)
         self.part = part
@@ -420,77 +664,363 @@ class StockTransactionForm(tk.Toplevel):
         self.work_order_id = work_order_id
         self.callback = callback
 
-        title = "ورود به انبار" if trans_type == "IN" else "خروج از انبار"
-        self.title(f"{title} - {part.part_number}")
-        self.geometry("500x500")
-        self.configure(bg=BG)
-        self.resizable(False, False)
+        title = (
+            "ورود به انبار"
+            if trans_type == "IN"
+            else "خروج از انبار"
+        )
 
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - 500) // 2
-        y = (self.winfo_screenheight() - 500) // 2
-        self.geometry(f"+{x}+{y}")
+        self.title(f"{title} - {part.part_number}")
+        self.configure(bg=BG)
+        self.resizable(True, True)
+        self.minsize(520, 520)
+        self.geometry("560x600")
+        self._center(560, 600)
+
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self._setup_ui()
 
+    def _center(self, width, height):
+        self.update_idletasks()
+
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
     def _setup_ui(self):
-        header = tk.Frame(self, bg=PRIMARY, height=45)
-        header.pack(fill="x")
-        act = "📥 ورود به انبار" if self.trans_type == "IN" else "📤 خروج از انبار"
-        tk.Label(header, text=act, font=FONT_HEADING, bg=PRIMARY, fg=WHITE).pack(pady=10)
+        # row 0 = header
+        # row 1 = scrollable content
+        # row 2 = fixed footer
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
-        main = tk.Frame(self, bg=CARD_BG)
-        main.pack(fill="both", expand=True, padx=20, pady=20)
+        # ── Header ──────────────────────────────────────────────
+        header = tk.Frame(self, bg=PRIMARY, height=55)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
 
-        info_card = tk.Frame(main, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
-        info_card.pack(fill="x", pady=(0,15), ipady=8)
-        tk.Label(info_card, text=f"قطعه: {self.part.name}", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT).pack(pady=2)
-        tk.Label(info_card, text=f"موجودی فعلی: {self.part.current_stock}", font=FONT_NORMAL, bg=CARD_BG, fg=SUBTLE).pack(pady=2)
+        act = (
+            "📥 ورود به انبار"
+            if self.trans_type == "IN"
+            else "📤 خروج از انبار"
+        )
+
+        tk.Label(
+            header,
+            text=act,
+            font=FONT_HEADING,
+            bg=PRIMARY,
+            fg=WHITE
+        ).pack(expand=True)
+
+        # ── Scrollable content ─────────────────────────────────
+        content = tk.Frame(self, bg=BG)
+        content.grid(row=1, column=0, sticky="nsew")
+        content.grid_rowconfigure(0, weight=1)
+        content.grid_columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(
+            content,
+            bg=BG,
+            highlightthickness=0,
+            bd=0
+        )
+        self._form_canvas = canvas
+
+        vsb = ttk.Scrollbar(
+            content,
+            orient="vertical",
+            command=canvas.yview
+        )
+
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=vsb.set)
+
+        scrollable = tk.Frame(canvas, bg=BG)
+        window_id = canvas.create_window(
+            (0, 0),
+            window=scrollable,
+            anchor="nw"
+        )
+
+        scrollable.bind(
+            "<Configure>",
+            lambda _event: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.bind(
+            "<Configure>",
+            lambda event: canvas.itemconfigure(
+                window_id,
+                width=event.width
+            )
+        )
+
+        canvas.bind("<MouseWheel>", self._on_mousewheel)
+        canvas.bind("<Button-4>", self._on_mousewheel)
+        canvas.bind("<Button-5>", self._on_mousewheel)
+
+        # ── Main card ──────────────────────────────────────────
+        main = tk.Frame(
+            scrollable,
+            bg=CARD_BG,
+            padx=28,
+            pady=20
+        )
+        main.pack(fill="both", expand=True)
+
+        info_card = tk.Frame(
+            main,
+            bg=CARD_BG,
+            highlightbackground=BORDER,
+            highlightthickness=1
+        )
+        info_card.pack(
+            fill="x",
+            pady=(0, 18),
+            ipady=8
+        )
+
+        tk.Label(
+            info_card,
+            text=f"قطعه: {self.part.name}",
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT
+        ).pack(pady=2)
+
+        tk.Label(
+            info_card,
+            text=f"موجودی فعلی: {self.part.current_stock}",
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=SUBTLE
+        ).pack(pady=2)
 
         frm = tk.Frame(main, bg=CARD_BG)
-        frm.pack(fill="x", pady=10)
-        tk.Label(frm, text="تعداد *:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, width=15, anchor="e").pack(side="right", padx=(0,10))
-        self.qty_entry = tk.Entry(frm, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, relief="solid", bd=1)
-        self.qty_entry.pack(side="right", fill="x", expand=True)
+        frm.pack(fill="x", pady=8)
 
-        if self.trans_type == 'IN':
+        tk.Label(
+            frm,
+            text="تعداد *:",
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            width=15,
+            anchor="e"
+        ).pack(
+            side="right",
+            padx=(0, 10)
+        )
+
+        self.qty_entry = tk.Entry(
+            frm,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            relief="solid",
+            bd=1,
+            justify="right"
+        )
+        self.qty_entry.pack(
+            side="right",
+            fill="x",
+            expand=True,
+            ipady=4
+        )
+
+        if self.trans_type == "IN":
             frm_price = tk.Frame(main, bg=CARD_BG)
-            frm_price.pack(fill="x", pady=10)
-            tk.Label(frm_price, text="قیمت واحد (تومان):", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, width=15, anchor="e").pack(side="right", padx=(0,10))
-            self.price_entry = tk.Entry(frm_price, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, relief="solid", bd=1)
-            self.price_entry.pack(side="right", fill="x", expand=True)
-            self.price_entry.insert(0, str(self.part.unit_price))
+            frm_price.pack(fill="x", pady=8)
+
+            tk.Label(
+                frm_price,
+                text="قیمت واحد (تومان):",
+                font=FONT_NORMAL,
+                bg=CARD_BG,
+                fg=TEXT,
+                width=15,
+                anchor="e"
+            ).pack(
+                side="right",
+                padx=(0, 10)
+            )
+
+            self.price_entry = tk.Entry(
+                frm_price,
+                font=FONT_NORMAL,
+                bg=CARD_BG,
+                fg=TEXT,
+                relief="solid",
+                bd=1,
+                justify="right"
+            )
+            self.price_entry.pack(
+                side="right",
+                fill="x",
+                expand=True,
+                ipady=4
+            )
+            self.price_entry.insert(
+                0,
+                str(self.part.unit_price)
+            )
 
         frm2 = tk.Frame(main, bg=CARD_BG)
-        frm2.pack(fill="x", pady=10)
-        tk.Label(frm2, text="مرجع:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, width=15, anchor="e").pack(side="right", padx=(0,10))
-        self.ref_entry = tk.Entry(frm2, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, relief="solid", bd=1)
-        self.ref_entry.pack(side="right", fill="x", expand=True)
+        frm2.pack(fill="x", pady=8)
+
+        tk.Label(
+            frm2,
+            text="مرجع:",
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            width=15,
+            anchor="e"
+        ).pack(
+            side="right",
+            padx=(0, 10)
+        )
+
+        self.ref_entry = tk.Entry(
+            frm2,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            relief="solid",
+            bd=1,
+            justify="right"
+        )
+        self.ref_entry.pack(
+            side="right",
+            fill="x",
+            expand=True,
+            ipady=4
+        )
 
         frm3 = tk.Frame(main, bg=CARD_BG)
-        frm3.pack(fill="x", pady=10)
-        tk.Label(frm3, text="توضیحات:", font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, width=15, anchor="e").pack(side="right", padx=(0,10))
-        self.notes_text = tk.Text(frm3, height=4, font=FONT_NORMAL, bg=CARD_BG, fg=TEXT, relief="solid", bd=1)
-        self.notes_text.pack(side="right", fill="x", expand=True)
+        frm3.pack(fill="x", pady=8)
 
-        btn_frame = tk.Frame(main, bg=CARD_BG)
-        btn_frame.pack(pady=20)
-        tk.Button(btn_frame, text="ثبت", font=FONT_NORMAL,
-                  bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=20, pady=6, command=self._save).pack(side="right", padx=8)
-        tk.Button(btn_frame, text="انصراف", font=FONT_NORMAL,
-                  bg=BORDER, fg=TEXT, relief="flat", cursor="hand2",
-                  padx=20, pady=6, command=self.destroy).pack(side="right", padx=8)
+        tk.Label(
+            frm3,
+            text="توضیحات:",
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            width=15,
+            anchor="e"
+        ).pack(
+            side="right",
+            padx=(0, 10)
+        )
+
+        self.notes_text = tk.Text(
+            frm3,
+            height=4,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            relief="solid",
+            bd=1,
+            wrap="word"
+        )
+        self.notes_text.pack(
+            side="right",
+            fill="x",
+            expand=True
+        )
+
+        # ── Fixed footer ───────────────────────────────────────
+        footer = tk.Frame(
+            self,
+            bg=CARD_BG,
+            highlightbackground=BORDER,
+            highlightthickness=1
+        )
+        footer.grid(row=2, column=0, sticky="ew")
+
+        button_row = tk.Frame(footer, bg=CARD_BG)
+        button_row.pack(anchor="center", pady=12)
+
+        tk.Button(
+            button_row,
+            text="انصراف",
+            font=FONT_NORMAL,
+            bg=BORDER,
+            fg=TEXT,
+            activebackground=BORDER,
+            activeforeground=TEXT,
+            relief="flat",
+            cursor="hand2",
+            padx=25,
+            pady=8,
+            command=self.destroy
+        ).pack(side="left", padx=6)
+
+        tk.Button(
+            button_row,
+            text="ثبت",
+            font=FONT_NORMAL,
+            bg=SUCCESS,
+            fg=WHITE,
+            activebackground=SUCCESS,
+            activeforeground=WHITE,
+            relief="flat",
+            cursor="hand2",
+            padx=30,
+            pady=8,
+            command=self._save
+        ).pack(side="left", padx=6)
+
+        self.bind("<Escape>", lambda _event: self.destroy())
+        self.bind("<Control-s>", lambda _event: self._save())
+
+    def _on_mousewheel(self, event):
+        try:
+            if event.num == 4:
+                self._form_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                self._form_canvas.yview_scroll(1, "units")
+            else:
+                self._form_canvas.yview_scroll(
+                    -1 if event.delta > 0 else 1,
+                    "units"
+                )
+        except tk.TclError:
+            pass
 
     def _save(self):
         try:
             qty = int(self.qty_entry.get().strip())
+
             if qty <= 0:
                 raise ValueError("تعداد باید مثبت باشد")
-            if self.trans_type == "OUT" and qty > self.part.current_stock:
-                raise ValueError(f"موجودی ناکافی. موجودی فعلی: {self.part.current_stock}")
+
+            if (
+                self.trans_type == "OUT"
+                and qty > self.part.current_stock
+            ):
+                raise ValueError(
+                    f"موجودی ناکافی. موجودی فعلی: "
+                    f"{self.part.current_stock}"
+                )
+
         except ValueError as e:
-            messagebox.showerror("خطا", str(e))
+            messagebox.showerror(
+                "خطا",
+                str(e),
+                parent=self
+            )
             return
 
         data = {
@@ -498,90 +1028,297 @@ class StockTransactionForm(tk.Toplevel):
             "transaction_type": self.trans_type,
             "quantity": qty,
             "reference": self.ref_entry.get().strip(),
-            "notes": self.notes_text.get("1.0", "end-1c").strip(),
+            "notes": self.notes_text.get(
+                "1.0",
+                "end-1c"
+            ).strip(),
         }
+
         batch_price = None
-        if self.trans_type == "IN" and hasattr(self, 'price_entry'):
+
+        if self.trans_type == "IN" and hasattr(
+            self,
+            "price_entry"
+        ):
             try:
-                batch_price = float(self.price_entry.get().strip())
-            except:
-                pass
+                batch_price = float(
+                    self.price_entry.get().strip()
+                )
+            except (ValueError, TypeError):
+                batch_price = None
 
         try:
-            self.service.add_stock_transaction(data, work_order_id=self.work_order_id, batch_price=batch_price)
-            messagebox.showinfo("موفق", "عملیات انبار با موفقیت ثبت شد.")
+            self.service.add_stock_transaction(
+                data,
+                work_order_id=self.work_order_id,
+                batch_price=batch_price
+            )
+
+            messagebox.showinfo(
+                "موفق",
+                "عملیات انبار با موفقیت ثبت شد.",
+                parent=self
+            )
+
             if self.callback:
                 self.callback()
+
             self.destroy()
+
         except Exception as e:
-            messagebox.showerror("خطا", str(e))
+            messagebox.showerror(
+                "خطا",
+                str(e),
+                parent=self
+            )
 
 
 class PartTransactionsView(tk.Toplevel):
     def __init__(self, parent, session_factory, part):
         super().__init__(parent)
+
         self.session_factory = session_factory
         self.service = SparePartsService(session_factory)
         self.part = part
 
-        self.title(f"تاریخچه تراکنش‌ها - {part.part_number}")
-        self.geometry("1000x500")
+        self.title(
+            f"تاریخچه تراکنش‌ها - {part.part_number}"
+        )
         self.configure(bg=BG)
+        self.resizable(True, True)
+        self.minsize(800, 450)
+        self.geometry("1000x560")
+        self._center(1000, 560)
 
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - 1000) // 2
-        y = (self.winfo_screenheight() - 500) // 2
-        self.geometry(f"+{x}+{y}")
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self._setup_ui()
         self._load()
 
+    def _center(self, width, height):
+        self.update_idletasks()
+
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
     def _setup_ui(self):
-        header = tk.Frame(self, bg=PRIMARY, height=50)
-        header.pack(fill="x")
-        tk.Label(header, text=f"📋 تاریخچه قطعه: {self.part.name} ({self.part.part_number})",
-                 font=FONT_TITLE, bg=PRIMARY, fg=WHITE).pack(pady=10)
+        # row 0 = header
+        # row 1 = table
+        # row 2 = fixed footer
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
-        frame = tk.Frame(self, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
-        frame.pack(fill="both", expand=True, padx=20, pady=20)
+        header = tk.Frame(
+            self,
+            bg=PRIMARY,
+            height=55
+        )
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
 
-        columns = ("date", "type", "quantity", "price", "reference", "notes")
-        self.tree = ttk.Treeview(frame, columns=columns, show="headings", height=20)
+        tk.Label(
+            header,
+            text=(
+                f"📋 تاریخچه قطعه: {self.part.name} "
+                f"({self.part.part_number})"
+            ),
+            font=FONT_TITLE,
+            bg=PRIMARY,
+            fg=WHITE
+        ).pack(expand=True)
+
+        frame = tk.Frame(
+            self,
+            bg=CARD_BG,
+            highlightbackground=BORDER,
+            highlightthickness=1
+        )
+        frame.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=20,
+            pady=15
+        )
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+
+        columns = (
+            "date",
+            "type",
+            "quantity",
+            "price",
+            "reference",
+            "notes"
+        )
+
+        self.tree = ttk.Treeview(
+            frame,
+            columns=columns,
+            show="headings"
+        )
+        rtl_columns(self.tree)  # RTL column order
+
         headers = [
-            ("date",      "تاریخ",        150, "center"),
-            ("type",      "نوع",          80,  "center"),
-            ("quantity",  "تعداد",        80,  "center"),
-            ("price",     "قیمت واحد",    150, "center"),
-            ("reference", "مرجع",         200, "w"),
-            ("notes",     "توضیحات",      300, "w"),
+            ("date", "تاریخ", 150, "center"),
+            ("type", "نوع", 80, "center"),
+            ("quantity", "تعداد", 80, "center"),
+            ("price", "قیمت واحد", 150, "center"),
+            ("reference", "مرجع", 200, "w"),
+            ("notes", "توضیحات", 300, "w"),
         ]
+
         for col, text, width, anchor in headers:
             self.tree.heading(col, text=text)
-            self.tree.column(col, width=width, anchor=anchor)
+            self.tree.column(
+                col,
+                width=width,
+                anchor=anchor,
+                minwidth=60
+            )
 
-        vsb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(side="right", fill="both", expand=True)
-        vsb.pack(side="left", fill="y")
+        vsb = ttk.Scrollbar(
+            frame,
+            orient="vertical",
+            command=self.tree.yview
+        )
+        hsb = ttk.Scrollbar(
+            frame,
+            orient="horizontal",
+            command=self.tree.xview
+        )
 
-        self.tree.tag_configure("IN", foreground=SUCCESS)
-        self.tree.tag_configure("OUT", foreground=DANGER)
+        self.tree.configure(
+            yscrollcommand=vsb.set,
+            xscrollcommand=hsb.set
+        )
 
-        tk.Button(self, text="بستن", font=FONT_NORMAL,
-                  bg=PRIMARY, fg=WHITE, relief="flat", cursor="hand2",
-                  padx=20, pady=6, command=self.destroy).pack(pady=10)
+        self.tree.grid(
+            row=0,
+            column=0,
+            sticky="nsew"
+        )
+        vsb.grid(
+            row=0,
+            column=1,
+            sticky="ns"
+        )
+        hsb.grid(
+            row=1,
+            column=0,
+            sticky="ew"
+        )
+
+        self.tree.tag_configure(
+            "IN",
+            foreground=SUCCESS
+        )
+        self.tree.tag_configure(
+            "OUT",
+            foreground=DANGER
+        )
+
+        style = ttk.Style()
+        style.configure(
+            "Treeview",
+            background=CARD_BG,
+            fieldbackground=CARD_BG,
+            foreground=TEXT,
+            rowheight=28
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=PRIMARY,
+            foreground=WHITE,
+            font=FONT_NORMAL
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", PRIMARY)],
+            foreground=[("selected", WHITE)]
+        )
+
+        # ── Fixed footer ───────────────────────────────────────
+        footer = tk.Frame(
+            self,
+            bg=CARD_BG,
+            highlightbackground=BORDER,
+            highlightthickness=1
+        )
+        footer.grid(
+            row=2,
+            column=0,
+            sticky="ew"
+        )
+
+        tk.Button(
+            footer,
+            text="بستن",
+            font=FONT_NORMAL,
+            bg=PRIMARY,
+            fg=WHITE,
+            activebackground=PRIMARY,
+            activeforeground=WHITE,
+            relief="flat",
+            cursor="hand2",
+            padx=28,
+            pady=8,
+            command=self.destroy
+        ).pack(
+            anchor="center",
+            pady=10
+        )
+
+        self.bind(
+            "<Escape>",
+            lambda _event: self.destroy()
+        )
 
     def _load(self):
-        transactions = self.service.get_part_transactions(self.part.id)
+        self.tree.delete(*self.tree.get_children())
+
+        transactions = self.service.get_part_transactions(
+            self.part.id
+        )
+
         for trans in transactions:
-            price_text = f"{trans.batch_price:,.0f}" if trans.batch_price else "—"
+            price_text = (
+                f"{trans.batch_price:,.0f}"
+                if trans.batch_price
+                else "—"
+            )
+
+            date_str = to_jalali_datetime_str(
+                trans.created_at
+            )
+
             values = (
-                trans.created_at.strftime("%Y-%m-%d %H:%M"),
-                "ورود" if trans.transaction_type == "IN" else "خروج",
+                date_str,
+                (
+                    "ورود"
+                    if trans.transaction_type == "IN"
+                    else "خروج"
+                ),
                 trans.quantity,
                 price_text,
                 trans.reference or "—",
                 trans.notes or "—",
             )
-            item = self.tree.insert("", "end", values=values)
-            self.tree.item(item, tags=(trans.transaction_type,))
+
+            item = self.tree.insert(
+                "",
+                "end",
+                values=values
+            )
+            self.tree.item(
+                item,
+                tags=(trans.transaction_type,)
+            )
+

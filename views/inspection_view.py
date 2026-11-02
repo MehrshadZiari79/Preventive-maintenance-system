@@ -1,8 +1,8 @@
 # views/inspection_view.py
 from typing import Optional, List
 import tkinter as tk
+from views.ui_kit import rtl_columns  # RTL (right-to-left) table columns
 from tkinter import ttk, messagebox
-from datetime import datetime
 
 from services.inspection_service import InspectionService
 from views.inspection_dialog import (
@@ -18,6 +18,8 @@ from utils.theme import (
     TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
     FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
 )
+# Import Jalali date helper
+from utils.date_helpers import to_jalali_datetime_str
 
 BG = GRAY_BG
 CARD_BG = WHITE
@@ -174,6 +176,7 @@ class InspectionView(tk.Frame):
         cols = ("id", "template", "equipment", "inspector",
                 "status", "result", "started", "completed")
         self._ins_tree = ttk.Treeview(container, columns=cols, show="headings", height=16)
+        rtl_columns(self._ins_tree)  # RTL column order
 
         headers = [
             ("id", "شناسه", 60, "center"),
@@ -243,6 +246,7 @@ class InspectionView(tk.Frame):
 
         cols = ("id", "name", "equipment", "frequency", "duration", "checkpoints", "active")
         self._tpl_tree = ttk.Treeview(container, columns=cols, show="headings", height=16)
+        rtl_columns(self._tpl_tree)  # RTL column order
 
         headers = [
             ("id", "شناسه", 60, "center"),
@@ -367,12 +371,17 @@ class InspectionView(tk.Frame):
         for ins in inspections:
             status_text = STATUS_FA.get(ins.status, ins.status)
             result_text = RESULT_FA.get(ins.overall_result or "", ins.overall_result or "")
+            if not ins.overall_result and ins.status == "completed":
+                result_text = "بدون نتیجه"
             tag = RESULT_TAG.get(ins.overall_result or "", "none")
             template_name = ins.template.name if ins.template and hasattr(ins.template, 'name') else "—"
             equipment_name = ins.equipment.name if ins.equipment and hasattr(ins.equipment, 'name') else "—"
             inspector_name = ins.inspector.username if ins.inspector and hasattr(ins.inspector, 'username') else "—"
-            started_at = ins.started_at.strftime("%Y-%m-%d %H:%M") if ins.started_at else "—"
-            completed_at = ins.completed_at.strftime("%Y-%m-%d %H:%M") if ins.completed_at else "—"
+
+            # Convert dates to Jalali
+            started_at = to_jalali_datetime_str(ins.started_at)
+            completed_at = to_jalali_datetime_str(ins.completed_at)
+
             self._ins_tree.insert("", "end", iid=str(ins.id), tags=(tag,),
                                   values=(
                                       ins.id, template_name, equipment_name,
@@ -583,3 +592,11 @@ class InspectionView(tk.Frame):
                     messagebox.showerror("خطا", "خطا در حذف قالب")
         except Exception as e:
             messagebox.showerror("خطا", f"خطا در حذف قالب: {str(e)}")
+
+    def ux_footer_spec(self):
+        """Filters shown as removable chips under the table (views/ux.py)."""
+        return {"filters": [("وضعیت", self._status_filter, "همه")],
+                "apply": self._apply_filter, "noun": "بازرسی",
+                "total": lambda: len(getattr(self, "_all_inspections", None) or []),
+                "_tpl_tree": {"noun": "قالب"}}
+

@@ -1,0 +1,18 @@
+# Runtime dependencies (build PC / development).
+# Client PCs do not need Python: they run the PyInstaller build.
+
+SQLAlchemy>=2.0,<2.1
+pymssql>=2.2
+jdatetime>=4.1
+tzdata
+matplotlib>=3.7
+numpy
+openpyxl>=3.1
+Pillow>=10.0
+arabic-reshaper>=3.0
+python-bidi>=0.4
+pydantic>=2.0
+
+# Build / tooling
+pyinstaller>=6.0
+# Optional: playwright (generate_manual.py also works with Microsoft Edge)

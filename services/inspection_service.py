@@ -1,15 +1,13 @@
 # services/inspection_service.py
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import joinedload
 from typing import List, Optional, Tuple
-from datetime import datetime
 from database.inspection_repository import InspectionRepository
 from database.models import (
     InspectionTemplate,
     InspectionCheckpoint,
     Inspection,
     InspectionResult,
-    Equipment,
-    User
+    Equipment
 )
 from schemas.inspection import (
     InspectionTemplateCreate,
@@ -18,6 +16,7 @@ from schemas.inspection import (
     InspectionUpdate,
     InspectionResultCreate
 )
+from utils.date_helpers import tehran_now  # Iranian (Asia/Tehran) clock
 
 
 class InspectionService:
@@ -118,7 +117,7 @@ class InspectionService:
                 if key in column_names and hasattr(template, key):
                     setattr(template, key, value)
 
-            template.updated_at = datetime.utcnow()
+            template.updated_at = tehran_now()
             self.db.commit()
             self.db.refresh(template)
             return template
@@ -181,7 +180,7 @@ class InspectionService:
                 return False, "قالب مورد نظر یافت نشد"
 
             template.is_active = not template.is_active
-            template.updated_at = datetime.utcnow()
+            template.updated_at = tehran_now()
             self.db.commit()
             status = "فعال" if template.is_active else "غیرفعال"
             return True, f"قالب با موفقیت {status} شد"
@@ -306,7 +305,7 @@ class InspectionService:
                 inspector_id=inspection_data.inspector_id,
                 notes=inspection_data.notes,
                 status="in_progress",
-                started_at=datetime.utcnow()
+                started_at=tehran_now()
             )
 
             self.db.add(inspection)
@@ -387,7 +386,8 @@ class InspectionService:
 
             total_checkpoints = pass_count + fail_count
             if total_checkpoints == 0:
-                overall_result = "partial"
+                # every checkpoint was N/A (or left empty): no verdict
+                overall_result = None
             elif fail_count == 0:
                 overall_result = "pass"
             elif pass_count == 0:
@@ -396,7 +396,7 @@ class InspectionService:
                 overall_result = "partial"
 
             inspection.status = "completed"
-            inspection.completed_at = datetime.utcnow()
+            inspection.completed_at = tehran_now()
             inspection.overall_result = overall_result
 
             self.db.commit()
@@ -405,6 +405,35 @@ class InspectionService:
         except Exception as e:
             self.db.rollback()
             raise Exception(f"خطا در ذخیره نتایج: {str(e)}")
+
+    def save_progress(self, inspection_id: int, results: List[InspectionResultCreate]) -> Optional[Inspection]:
+        """Store checkpoint results without completing the inspection."""
+        try:
+            inspection = self.get_inspection(inspection_id)
+            if not inspection:
+                raise ValueError("Inspection not found")
+            if inspection.status != "in_progress":
+                raise ValueError("فقط بازرسی‌های در حال انجام قابل ویرایش هستند")
+            for result_data in results:
+                existing = self.db.query(InspectionResult).filter(
+                    InspectionResult.inspection_id == inspection_id,
+                    InspectionResult.checkpoint_id == result_data.checkpoint_id,
+                ).first()
+                if existing:
+                    existing.result = result_data.result
+                    existing.comment = result_data.comment
+                else:
+                    self.db.add(InspectionResult(
+                        inspection_id=inspection_id,
+                        checkpoint_id=result_data.checkpoint_id,
+                        result=result_data.result,
+                        comment=result_data.comment,
+                    ))
+            self.db.commit()
+            return inspection
+        except Exception as e:
+            self.db.rollback()
+            raise Exception(f"خطا در ذخیره پیشرفت: {str(e)}")
 
     def cancel_inspection(self, inspection_id: int) -> Optional[Inspection]:
         """Cancel inspection"""
@@ -417,7 +446,7 @@ class InspectionService:
                 raise ValueError("بازرسی تکمیل شده قابل لغو نیست")
 
             inspection.status = "cancelled"
-            inspection.completed_at = datetime.utcnow()
+            inspection.completed_at = tehran_now()
 
             self.db.commit()
             self.db.refresh(inspection)

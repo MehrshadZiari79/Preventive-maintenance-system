@@ -1,8 +1,15 @@
-Copyright (c) 2025 Gela Dairy — All Rights Reserved.
+Copyright (c) 2025-2026 Gela Dairy Co., Amol, Iran. All rights reserved.
 
-This software is proprietary and confidential.
-Developed internally for Gela Dairy, Amol, Iran.
-Unauthorized copying, distribution, or use of this software,
-via any medium, is strictly prohibited.
+This software and its documentation are proprietary and confidential. They were
+developed for internal use at Gela Dairy Co.
 
-Developed by: Mehrshad Ziari — Computer Engineer, Gela Dairy
+No part of this software may be copied, distributed, modified, published,
+sublicensed or used outside Gela Dairy Co. without prior written permission
+from Gela Dairy Co.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+Third-party components keep their own licenses, including the Vazirmatn font
+in docs/manual/fonts (SIL Open Font License 1.1, see OFL.txt there).

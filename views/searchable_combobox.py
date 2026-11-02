@@ -1,5 +1,4 @@
 # views/searchable_combobox.py
-import tkinter as tk
 from tkinter import ttk
 
 class SearchableCombobox(ttk.Combobox):

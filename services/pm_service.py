@@ -1,7 +1,7 @@
 # services/pm_service.py
-from datetime import datetime
 from database.pm_repository import PMRepository
 from database.work_order_repository import WorkOrderRepository
+from utils.date_helpers import tehran_now  # Iranian (Asia/Tehran) clock
 
 
 class PMService:
@@ -18,7 +18,7 @@ class PMService:
         skipped = 0
         errors = []
 
-        due_schedules = self.pm_repo.get_due_schedules_ahead(datetime.now(), days_ahead)
+        due_schedules = self.pm_repo.get_due_schedules_ahead(tehran_now(), days_ahead)
 
         for pm in due_schedules:
             existing = self.wo_repo.find_by_schedule_and_date(pm.id, pm.next_due)

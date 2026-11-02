@@ -1,355 +1,1370 @@
 # views/equipment_dialog.py
+
 import tkinter as tk
 from tkinter import ttk, messagebox
-from tkcalendar import DateEntry
+from views.ux import field_error
 from datetime import datetime
-import jdatetime
 
 from utils.theme import (
     NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
-    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
-    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+    TEXT_DARK, TEXT_LIGHT, SUCCESS, FONT_TITLE,
+    FONT_HEADING, FONT_NORMAL, FONT_SMALL
 )
+
+from views.jalali_date_entry import JalaliDateEntry
+
+
+# ============================================================
+# COLORS
+# ============================================================
 
 BG = GRAY_BG
 CARD_BG = WHITE
 PRIMARY = NAVY
+PRIMARY_LIGHT = NAVY_LIGHT
 DANGER = RED
-SUCCESS = SUCCESS
+SUCCESS_COLOR = SUCCESS
+
 TEXT = TEXT_DARK
 SUBTLE = TEXT_LIGHT
 BORDER = GRAY_BORDER
 
-FONT_TITLE = FONT_TITLE
-FONT_NORMAL = FONT_NORMAL
-FONT_LABEL = FONT_HEADING
+FIELD_BG = "#FFFFFF"
+SECTION_BG = "#F7F8FA"
+DISABLED_BG = "#EEF1F4"
+
+
+# ============================================================
+# STATUS
+# ============================================================
 
 STATUS_FA = {
     "operational": "عملیاتی",
     "maintenance": "در تعمیر",
     "breakdown": "خراب",
-    "inactive": "غیرفعال"
+    "inactive": "غیرفعال",
 }
 
+
 class EquipmentDialog(tk.Toplevel):
+
+    MIN_WIDTH = 850
+    MIN_HEIGHT = 650
+
     def __init__(self, parent, equipment_repo, equipment=None):
         super().__init__(parent)
+
+        self.parent = parent
         self.equipment_repo = equipment_repo
         self.equipment = equipment
         self.result = None
 
         title = "ویرایش تجهیز" if equipment else "افزودن تجهیز جدید"
+
         self.title(title)
         self.configure(bg=BG)
-        self.resizable(False, False)
 
-        self._center_window(800, 800)
-        self._build_ui()
+        # ----------------------------------------------------
+        # Window behavior
+        # ----------------------------------------------------
 
-        if equipment:
-            self._populate_fields()
+        self.resizable(True, True)
+        self.minsize(self.MIN_WIDTH, self.MIN_HEIGHT)
 
         self.transient(parent)
         self.grab_set()
 
-    def _center_window(self, w, h):
+        self._center_window(900, 720)
+
+        self._build_ui()
+
+        if self.equipment:
+            self._populate_fields()
+
+        # ----------------------------------------------------
+        # Keyboard shortcuts
+        # ----------------------------------------------------
+
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Control-s>", lambda e: self._save())
+
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    # ========================================================
+    # WINDOW
+    # ========================================================
+
+    def _center_window(self, width, height):
+
         self.update_idletasks()
-        x = (self.winfo_screenwidth() // 2) - (w // 2)
-        y = (self.winfo_screenheight() // 2) - (h // 2)
-        self.geometry(f"{w}x{h}+{x}+{y}")
+
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+
+        width = min(width, screen_w - 80)
+        height = min(height, screen_h - 100)
+
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    # ========================================================
+    # MAIN UI
+    # ========================================================
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=PRIMARY, height=60)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-        title = "ویرایش تجهیز" if self.equipment else "افزودن تجهیز جدید"
-        tk.Label(header, text=title, font=FONT_TITLE, bg=PRIMARY, fg=WHITE).pack(pady=15)
 
-        main_card = tk.Frame(self, bg=BORDER)
-        main_card.pack(fill="both", expand=True, padx=20, pady=15)
-        main_container = tk.Frame(main_card, bg=CARD_BG)
-        main_container.pack(fill="both", expand=True, padx=1, pady=1)
+        self._build_header()
+        self._build_content()
+        self._build_buttons()
 
-        canvas = tk.Canvas(main_container, bg=CARD_BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=CARD_BG)
+    # ========================================================
+    # HEADER
+    # ========================================================
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    def _build_header(self):
+
+        header = tk.Frame(
+            self,
+            bg=PRIMARY,
+            height=68
         )
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        header.pack(fill="x")
+        header.pack_propagate(False)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # Right side
+        right = tk.Frame(header, bg=PRIMARY)
+        right.pack(side="right", padx=24, fill="y")
+
+        icon = "✏️" if self.equipment else "⚙️"
+
+        tk.Label(
+            right,
+            text=icon,
+            font=("Tahoma", 20),
+            bg=PRIMARY,
+            fg=WHITE
+        ).pack(side="right", pady=16)
+
+        text_frame = tk.Frame(right, bg=PRIMARY)
+        text_frame.pack(side="right", padx=(0, 10), fill="y")
+
+        title = "ویرایش تجهیز" if self.equipment else "افزودن تجهیز جدید"
+
+        tk.Label(
+            text_frame,
+            text=title,
+            font=FONT_TITLE,
+            bg=PRIMARY,
+            fg=WHITE
+        ).pack(anchor="e", pady=(13, 0))
+
+        subtitle = (
+            "ویرایش اطلاعات و مشخصات تجهیز"
+            if self.equipment
+            else "اطلاعات پایه و مشخصات تجهیز را وارد کنید"
+        )
+
+        tk.Label(
+            text_frame,
+            text=subtitle,
+            font=FONT_SMALL,
+            bg=PRIMARY,
+            fg=WHITE
+        ).pack(anchor="e")
+
+    # ========================================================
+    # CONTENT
+    # ========================================================
+
+    def _build_content(self):
+
+        outer = tk.Frame(
+            self,
+            bg=BORDER
+        )
+
+        outer.pack(
+            fill="both",
+            expand=True,
+            padx=18,
+            pady=(14, 10)
+        )
+
+        card = tk.Frame(
+            outer,
+            bg=CARD_BG
+        )
+
+        card.pack(
+            fill="both",
+            expand=True,
+            padx=1,
+            pady=1
+        )
+
+        # ----------------------------------------------------
+        # Canvas
+        # ----------------------------------------------------
+
+        self.canvas = tk.Canvas(
+            card,
+            bg=CARD_BG,
+            highlightthickness=0,
+            bd=0
+        )
+
+        scrollbar = ttk.Scrollbar(
+            card,
+            orient="vertical",
+            command=self.canvas.yview
+        )
+
+        self.scrollable_frame = tk.Frame(
+            self.canvas,
+            bg=CARD_BG
+        )
+
+        self.canvas_window = self.canvas.create_window(
+            (0, 0),
+            window=self.scrollable_frame,
+            anchor="nw"
+        )
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            self._on_frame_configure
+        )
+
+        self.canvas.bind(
+            "<Configure>",
+            self._on_canvas_configure
+        )
+
+        self.canvas.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        self.canvas.pack(
+            side="left",
+            fill="both",
+            expand=True
+        )
+
+        scrollbar.pack(
+            side="right",
+            fill="y"
+        )
+
+        # Mouse wheel
+        # FIX: use a scoped binding instead of bind_all so this dialog
+        # does not steal the mouse-wheel from every other widget in the
+        # application. Also route wheel events from child widgets.
+        self.canvas.bind(
+            "<MouseWheel>",
+            self._on_mousewheel,
+            add="+"
+        )
+        self.canvas.bind(
+            "<Button-4>",
+            lambda e: self.canvas.yview_scroll(-3, "units"),
+            add="+"
+        )
+        self.canvas.bind(
+            "<Button-5>",
+            lambda e: self.canvas.yview_scroll(3, "units"),
+            add="+"
+        )
+
+        # ----------------------------------------------------
+        # Fields
+        # ----------------------------------------------------
 
         self.entries = {}
 
-        # Row 1: code, name
-        row1 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        row1.pack(fill="x", pady=5, padx=10)
-        self._create_field(row1, "code", "کد تجهیز *", width=30, side="right")
-        self._create_field(row1, "name", "نام تجهیز *", width=30, side="left")
+        self._build_basic_section()
+        self._build_dimensions_section()
+        self._build_description_section()
 
-        # Row 2: category + manufacturer
-        row2 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        row2.pack(fill="x", pady=5, padx=10)
-        self._create_editable_combo(row2, "category", "دسته‌بندی *", self.equipment_repo.get_categories(), side="right")
-        self._create_field(row2, "manufacturer", "سازنده", width=30, side="left")
+        # FIX: after all widgets exist, route their wheel events to
+        # this dialog's canvas.
+        self.after_idle(
+            lambda: self._bind_mousewheel_to_children(self.scrollable_frame)
+        )
 
-        # Row 3: model, serial number
-        row3 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        row3.pack(fill="x", pady=5, padx=10)
-        self._create_field(row3, "model", "مدل", width=30, side="right")
-        self._create_field(row3, "serial_number", "شماره سریال", width=30, side="left")
+    # ========================================================
+    # SCROLL
+    # ========================================================
 
-        # Row 4: location (editable combo) + installation date
-        row4 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        row4.pack(fill="x", pady=5, padx=10)
-        self._create_editable_combo(row4, "location", "موقعیت *", self.equipment_repo.get_locations(), side="right")
-        self._create_date_field(row4, "installation_date", "تاریخ نصب", side="left")
+    def _on_frame_configure(self, event=None):
 
-        # Row 5: status
-        row5 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        row5.pack(fill="x", pady=5, padx=10)
-        self._create_combo(row5, "status", "وضعیت *", list(STATUS_FA.values()), side="right")
+        self.canvas.configure(
+            scrollregion=self.canvas.bbox("all")
+        )
 
-        # Dimensions (length, width, diameter)
-        dim_frame = tk.Frame(scrollable_frame, bg=CARD_BG)
-        dim_frame.pack(fill="x", pady=5, padx=10)
-        self._create_field(dim_frame, "length", "طول (متر)", width=12, side="left")
-        self._create_field(dim_frame, "width", "عرض (متر)", width=12, side="left")
-        self._create_field(dim_frame, "diameter", "قطر (متر)", width=12, side="left")
+    def _on_canvas_configure(self, event):
 
-        # (height, volume, weight)
-        dim_frame2 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        dim_frame2.pack(fill="x", pady=5, padx=10)
-        self._create_field(dim_frame2, "height", "ارتفاع (متر)", width=12, side="left")
-        self._create_field(dim_frame2, "volume", "حجم (متر³)", width=12, side="left")
-        self._create_field(dim_frame2, "weight", "وزن (کیلوگرم)", width=12, side="left")
+        self.canvas.itemconfigure(
+            self.canvas_window,
+            width=event.width
+        )
 
-        # specifications
-        row8 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        row8.pack(fill="x", pady=5, padx=10)
-        self._create_text_field(row8, "specifications", "مشخصات فنی", height=4)
+    def _on_mousewheel(self, event):
 
-        # notes
-        row9 = tk.Frame(scrollable_frame, bg=CARD_BG)
-        row9.pack(fill="x", pady=5, padx=10)
-        self._create_text_field(row9, "notes", "توضیحات", height=3)
+        try:
+            self.canvas.yview_scroll(
+                int(-1 * (event.delta / 120)),
+                "units"
+            )
+        except Exception:
+            pass
 
-        btn_frame = tk.Frame(self, bg=BG)
-        btn_frame.pack(fill="x", padx=20, pady=(5, 15))
+    # --------------------------------------------------------
+    # FIX: propagate mousewheel from all children to the canvas.
+    # Text and Listbox widgets are skipped so they keep their own
+    # internal scrolling.
+    # --------------------------------------------------------
 
-        tk.Button(btn_frame, text="لغو", font=FONT_NORMAL,
-                  bg=DANGER, fg=WHITE, relief="flat",
-                  cursor="hand2", command=self.destroy,
-                  padx=30, pady=10).pack(side="left", padx=5)
+    def _bind_mousewheel_to_children(self, widget):
 
-        tk.Button(btn_frame, text="ذخیره", font=FONT_NORMAL,
-                  bg=SUCCESS, fg=WHITE, relief="flat",
-                  cursor="hand2", command=self._save,
-                  padx=30, pady=10).pack(side="right", padx=5)
+        if isinstance(widget, (tk.Text, tk.Listbox)):
+            return
 
-    def _create_field(self, parent, key, label, width=40, side="right"):
-        container = tk.Frame(parent, bg=CARD_BG)
-        container.pack(side=side, fill="x", expand=True, padx=10)
+        try:
+            widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
+            widget.bind(
+                "<Button-4>",
+                lambda e: self.canvas.yview_scroll(-3, "units"),
+                add="+"
+            )
+            widget.bind(
+                "<Button-5>",
+                lambda e: self.canvas.yview_scroll(3, "units"),
+                add="+"
+            )
+        except Exception:
+            pass
 
-        tk.Label(container, text=label, font=FONT_LABEL,
-                 bg=CARD_BG, fg=TEXT, anchor="e").pack(anchor="e", pady=(0, 3))
+        for child in widget.winfo_children():
+            self._bind_mousewheel_to_children(child)
 
-        entry = tk.Entry(container, font=FONT_NORMAL, width=width,
-                        relief="solid", bd=1, bg=WHITE, fg=TEXT)
-        entry.pack(fill="x")
+    # ========================================================
+    # SECTION
+    # ========================================================
+
+    def _create_section(self, title, subtitle=None):
+
+        wrapper = tk.Frame(
+            self.scrollable_frame,
+            bg=CARD_BG
+        )
+
+        wrapper.pack(
+            fill="x",
+            padx=22,
+            pady=(18, 6)
+        )
+
+        header = tk.Frame(
+            wrapper,
+            bg=CARD_BG
+        )
+
+        header.pack(
+            fill="x"
+        )
+
+        tk.Label(
+            header,
+            text=title,
+            font=FONT_HEADING,
+            bg=CARD_BG,
+            fg=TEXT
+        ).pack(
+            side="right"
+        )
+
+        if subtitle:
+            tk.Label(
+                header,
+                text=subtitle,
+                font=FONT_SMALL,
+                bg=CARD_BG,
+                fg=SUBTLE
+            ).pack(
+                side="right",
+                padx=(0, 10)
+            )
+
+        tk.Frame(
+            wrapper,
+            bg=BORDER,
+            height=1
+        ).pack(
+            fill="x",
+            pady=(8, 12)
+        )
+
+        body = tk.Frame(
+            wrapper,
+            bg=CARD_BG
+        )
+
+        body.pack(
+            fill="x"
+        )
+
+        return body
+
+    # ========================================================
+    # BASIC INFORMATION
+    # ========================================================
+
+    def _build_basic_section(self):
+
+        body = self._create_section(
+            "اطلاعات اصلی",
+            "فیلدهای دارای * الزامی هستند"
+        )
+
+        # 2 columns
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+
+        # Row 0
+        self._create_field_grid(
+            body,
+            "code",
+            "کد تجهیز *",
+            row=0,
+            column=1
+        )
+
+        self._create_field_grid(
+            body,
+            "name",
+            "نام تجهیز *",
+            row=0,
+            column=0
+        )
+
+        # Row 1
+        self._create_editable_combo_grid(
+            body,
+            "category",
+            "دسته‌بندی *",
+            self.equipment_repo.get_categories(),
+            row=1,
+            column=1
+        )
+
+        self._create_field_grid(
+            body,
+            "manufacturer",
+            "سازنده",
+            row=1,
+            column=0
+        )
+
+        # Row 2
+        self._create_field_grid(
+            body,
+            "model",
+            "مدل",
+            row=2,
+            column=1
+        )
+
+        self._create_field_grid(
+            body,
+            "serial_number",
+            "شماره سریال",
+            row=2,
+            column=0
+        )
+
+        # Row 3
+        self._create_editable_combo_grid(
+            body,
+            "location",
+            "موقعیت *",
+            self.equipment_repo.get_locations(),
+            row=3,
+            column=1
+        )
+
+        self._create_date_field_grid(
+            body,
+            "installation_date",
+            "تاریخ نصب",
+            row=3,
+            column=0
+        )
+
+        # Row 4
+        self._create_combo_grid(
+            body,
+            "status",
+            "وضعیت *",
+            list(STATUS_FA.values()),
+            row=4,
+            column=1
+        )
+
+        # Empty second column intentionally
+        spacer = tk.Frame(
+            body,
+            bg=CARD_BG
+        )
+
+        spacer.grid(
+            row=4,
+            column=0,
+            sticky="ew",
+            padx=8,
+            pady=7
+        )
+
+    # ========================================================
+    # DIMENSIONS
+    # ========================================================
+
+    def _build_dimensions_section(self):
+
+        body = self._create_section(
+            "ابعاد و مشخصات فیزیکی",
+            "در صورت نیاز وارد کنید"
+        )
+
+        for column in range(3):
+            body.columnconfigure(
+                column,
+                weight=1
+            )
+
+        fields = [
+            ("length", "طول (متر)"),
+            ("width", "عرض (متر)"),
+            ("height", "ارتفاع (متر)"),
+            ("diameter", "قطر (متر)"),
+            ("volume", "حجم (متر³)"),
+            ("weight", "وزن (کیلوگرم)")
+        ]
+
+        for index, (key, label) in enumerate(fields):
+
+            row = index // 3
+            column = index % 3
+
+            self._create_field_grid(
+                body,
+                key,
+                label,
+                row=row,
+                column=column,
+                padx=8
+            )
+
+    # ========================================================
+    # DESCRIPTION
+    # ========================================================
+
+    def _build_description_section(self):
+
+        body = self._create_section(
+            "توضیحات",
+            "اطلاعات تکمیلی تجهیز"
+        )
+
+        self._create_text_field_grid(
+            body,
+            "specifications",
+            "مشخصات فنی",
+            height=5
+        )
+
+        self._create_text_field_grid(
+            body,
+            "notes",
+            "توضیحات",
+            height=4
+        )
+
+        # Bottom spacing
+        tk.Frame(
+            self.scrollable_frame,
+            height=10,
+            bg=CARD_BG
+        ).pack(fill="x")
+
+    # ========================================================
+    # FIELD HELPERS
+    # ========================================================
+
+    def _create_field_grid(
+        self,
+        parent,
+        key,
+        label,
+        row,
+        column,
+        padx=8
+    ):
+
+        container = tk.Frame(
+            parent,
+            bg=CARD_BG
+        )
+
+        container.grid(
+            row=row,
+            column=column,
+            sticky="ew",
+            padx=padx,
+            pady=7
+        )
+
+        container.columnconfigure(
+            0,
+            weight=1
+        )
+
+        tk.Label(
+            container,
+            text=label,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            anchor="e"
+        ).pack(
+            fill="x",
+            pady=(0, 4)
+        )
+
+        entry = tk.Entry(
+            container,
+            font=FONT_NORMAL,
+            relief="solid",
+            bd=1,
+            bg=FIELD_BG,
+            fg=TEXT,
+            insertbackground=TEXT
+        )
+
+        entry.pack(
+            fill="x",
+            ipady=6
+        )
+
         self.entries[key] = entry
 
-    def _create_editable_combo(self, parent, key, label, values, side="right"):
-        container = tk.Frame(parent, bg=CARD_BG)
-        container.pack(side=side, fill="x", expand=True, padx=10)
+    # ========================================================
 
-        tk.Label(container, text=label, font=FONT_LABEL,
-                 bg=CARD_BG, fg=TEXT, anchor="e").pack(anchor="e", pady=(0, 3))
+    def _create_editable_combo_grid(
+        self,
+        parent,
+        key,
+        label,
+        values,
+        row,
+        column,
+        padx=8
+    ):
 
-        combo = ttk.Combobox(container, font=FONT_NORMAL,
-                             values=values, state="normal", width=37)
-        combo.pack(fill="x")
+        container = tk.Frame(
+            parent,
+            bg=CARD_BG
+        )
+
+        container.grid(
+            row=row,
+            column=column,
+            sticky="ew",
+            padx=padx,
+            pady=7
+        )
+
+        tk.Label(
+            container,
+            text=label,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            anchor="e"
+        ).pack(
+            fill="x",
+            pady=(0, 4)
+        )
+
+        combo = ttk.Combobox(
+            container,
+            font=FONT_NORMAL,
+            values=values,
+            state="normal"
+        )
+
+        combo.pack(
+            fill="x",
+            ipady=4
+        )
+
         self.entries[key] = combo
 
-    def _create_combo(self, parent, key, label, values, side="right"):
-        container = tk.Frame(parent, bg=CARD_BG)
-        container.pack(side=side, fill="x", expand=True, padx=10)
+    # ========================================================
 
-        tk.Label(container, text=label, font=FONT_LABEL,
-                 bg=CARD_BG, fg=TEXT, anchor="e").pack(anchor="e", pady=(0, 3))
+    def _create_combo_grid(
+        self,
+        parent,
+        key,
+        label,
+        values,
+        row,
+        column,
+        padx=8
+    ):
 
-        combo = ttk.Combobox(container, font=FONT_NORMAL, values=values,
-                            state="readonly", width=37)
-        combo.pack(fill="x")
+        container = tk.Frame(
+            parent,
+            bg=CARD_BG
+        )
+
+        container.grid(
+            row=row,
+            column=column,
+            sticky="ew",
+            padx=padx,
+            pady=7
+        )
+
+        tk.Label(
+            container,
+            text=label,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            anchor="e"
+        ).pack(
+            fill="x",
+            pady=(0, 4)
+        )
+
+        combo = ttk.Combobox(
+            container,
+            font=FONT_NORMAL,
+            values=values,
+            state="readonly"
+        )
+
+        combo.pack(
+            fill="x",
+            ipady=4
+        )
+
         if values:
             combo.current(0)
+
         self.entries[key] = combo
 
-    def _create_date_field(self, parent, key, label, side="right"):
-        container = tk.Frame(parent, bg=CARD_BG)
-        container.pack(side=side, fill="x", expand=True, padx=10)
+    # ========================================================
 
-        tk.Label(container, text=label, font=FONT_LABEL,
-                 bg=CARD_BG, fg=TEXT, anchor="e").pack(anchor="e", pady=(0, 3))
+    def _create_date_field_grid(
+        self,
+        parent,
+        key,
+        label,
+        row,
+        column,
+        padx=8
+    ):
 
-        date_frame = tk.Frame(container, bg=CARD_BG)
-        date_frame.pack(fill="x")
+        container = tk.Frame(
+            parent,
+            bg=CARD_BG
+        )
 
-        date_entry = DateEntry(date_frame, font=FONT_NORMAL, width=35,
-                              background=PRIMARY, foreground=WHITE,
-                              borderwidth=1, date_pattern='yyyy-mm-dd')
-        date_entry.pack(side="right", fill="x", expand=True)
+        container.grid(
+            row=row,
+            column=column,
+            sticky="ew",
+            padx=padx,
+            pady=7
+        )
 
-        jalali_label = tk.Label(date_frame, text="", font=FONT_LABEL,
-                               bg=CARD_BG, fg=SUCCESS)
-        jalali_label.pack(side="left", padx=5)
+        tk.Label(
+            container,
+            text=label,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            anchor="e"
+        ).pack(
+            fill="x",
+            pady=(0, 4)
+        )
 
-        def update_jalali(event=None):
-            try:
-                greg_date = date_entry.get_date()
-                jalali_date = jdatetime.date.fromgregorian(date=greg_date)
-                jalali_label.config(text=jalali_date.strftime('%Y/%m/%d'))
-            except:
-                jalali_label.config(text="")
+        date_entry = JalaliDateEntry(
+            container,
+            width=20,
+            font=("Tahoma", 10)
+        )
 
-        date_entry.bind("<<DateEntrySelected>>", update_jalali)
-        update_jalali()
+        date_entry.pack(
+            fill="x",
+            ipady=2
+        )
 
         self.entries[key] = date_entry
 
-    def _create_text_field(self, parent, key, label, height=3):
-        container = tk.Frame(parent, bg=CARD_BG)
-        container.pack(fill="x", padx=10, pady=5)
+    # ========================================================
 
-        tk.Label(container, text=label, font=FONT_LABEL,
-                 bg=CARD_BG, fg=TEXT, anchor="e").pack(anchor="e", pady=(0, 3))
+    def _create_text_field_grid(
+        self,
+        parent,
+        key,
+        label,
+        height=4
+    ):
 
-        text_frame = tk.Frame(container, relief="solid", bd=1, bg=WHITE)
-        text_frame.pack(fill="x")
+        container = tk.Frame(
+            parent,
+            bg=CARD_BG
+        )
 
-        text = tk.Text(text_frame, font=FONT_NORMAL, height=height,
-                      wrap="word", relief="flat", bg=WHITE, fg=TEXT)
-        text.pack(side="left", fill="both", expand=True)
+        container.pack(
+            fill="x",
+            pady=7
+        )
 
-        scrollbar = ttk.Scrollbar(text_frame, command=text.yview)
-        scrollbar.pack(side="right", fill="y")
-        text.config(yscrollcommand=scrollbar.set)
+        tk.Label(
+            container,
+            text=label,
+            font=FONT_NORMAL,
+            bg=CARD_BG,
+            fg=TEXT,
+            anchor="e"
+        ).pack(
+            fill="x",
+            pady=(0, 4)
+        )
+
+        text_frame = tk.Frame(
+            container,
+            bg=WHITE,
+            relief="solid",
+            bd=1
+        )
+
+        text_frame.pack(
+            fill="x"
+        )
+
+        text = tk.Text(
+            text_frame,
+            font=FONT_NORMAL,
+            height=height,
+            wrap="word",
+            relief="flat",
+            bd=0,
+            bg=WHITE,
+            fg=TEXT,
+            insertbackground=TEXT
+        )
+
+        scrollbar = ttk.Scrollbar(
+            text_frame,
+            orient="vertical",
+            command=text.yview
+        )
+
+        text.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        scrollbar.pack(
+            side="right",
+            fill="y"
+        )
+
+        text.pack(
+            side="left",
+            fill="both",
+            expand=True,
+            padx=6,
+            pady=5
+        )
 
         self.entries[key] = text
 
+    # ========================================================
+    # BUTTON BAR
+    # ========================================================
+
+    def _build_buttons(self):
+
+        separator = tk.Frame(
+            self,
+            bg=BORDER,
+            height=1
+        )
+
+        separator.pack(
+            fill="x"
+        )
+
+        button_bar = tk.Frame(
+            self,
+            bg=BG,
+            height=70
+        )
+
+        button_bar.pack(
+            fill="x"
+        )
+
+        button_bar.pack_propagate(False)
+
+        # ----------------------------------------------------
+        # Left: cancel
+        # ----------------------------------------------------
+
+        cancel_btn = tk.Button(
+            button_bar,
+            text="لغو",
+            font=FONT_NORMAL,
+            bg=DANGER,
+            fg=WHITE,
+            activebackground=DANGER,
+            activeforeground=WHITE,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            width=10,
+            pady=8,
+            command=self.destroy
+        )
+
+        cancel_btn.pack(
+            side="left",
+            padx=(18, 6),
+            pady=14
+        )
+
+        # ----------------------------------------------------
+        # Right: save
+        # ----------------------------------------------------
+
+        save_btn = tk.Button(
+            button_bar,
+            text="💾  ذخیره",
+            font=FONT_NORMAL,
+            bg=SUCCESS_COLOR,
+            fg=WHITE,
+            activebackground=SUCCESS_COLOR,
+            activeforeground=WHITE,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            width=14,
+            pady=8,
+            command=self._save
+        )
+
+        save_btn.pack(
+            side="right",
+            padx=(6, 18),
+            pady=14
+        )
+
+        # ----------------------------------------------------
+        # Hint
+        # ----------------------------------------------------
+
+        tk.Label(
+            button_bar,
+            text="Ctrl+S: ذخیره   |   Esc: لغو",
+            font=FONT_SMALL,
+            bg=BG,
+            fg=SUBTLE
+        ).pack(
+            side="left",
+            padx=15
+        )
+
+    # ========================================================
+    # POPULATE
+    # ========================================================
+
     def _populate_fields(self):
+
         if not self.equipment:
             return
 
-        self.entries["code"].insert(0, self.equipment.get("code", ""))
-        self.entries["code"].config(state="disabled")
+        # Code
+        self.entries["code"].insert(
+            0,
+            self.equipment.get("code", "")
+        )
 
-        self.entries["name"].insert(0, self.equipment.get("name", ""))
+        self.entries["code"].config(
+            state="disabled",
+            disabledbackground=DISABLED_BG,
+            disabledforeground=TEXT
+        )
 
-        category = self.equipment.get("category", "")
-        self.entries["category"].set(category)
+        # Basic fields
+        self.entries["name"].insert(
+            0,
+            self.equipment.get("name", "")
+        )
 
-        self.entries["manufacturer"].insert(0, self.equipment.get("manufacturer", ""))
-        self.entries["model"].insert(0, self.equipment.get("model", ""))
-        self.entries["serial_number"].insert(0, self.equipment.get("serial_number", ""))
+        self.entries["category"].set(
+            self.equipment.get("category", "")
+        )
 
-        # Location
-        loc = self.equipment.get("location", "")
-        self.entries["location"].set(loc)
+        self.entries["manufacturer"].insert(
+            0,
+            self.equipment.get("manufacturer", "")
+        )
 
-        if self.equipment.get("installation_date"):
+        self.entries["model"].insert(
+            0,
+            self.equipment.get("model", "")
+        )
+
+        self.entries["serial_number"].insert(
+            0,
+            self.equipment.get("serial_number", "")
+        )
+
+        self.entries["location"].set(
+            self.equipment.get("location", "")
+        )
+
+        # Installation date
+        installation_date = self.equipment.get(
+            "installation_date"
+        )
+
+        if installation_date:
+
             try:
-                date_obj = datetime.strptime(self.equipment["installation_date"], "%Y-%m-%d")
-                self.entries["installation_date"].set_date(date_obj)
-            except:
+
+                if isinstance(
+                    installation_date,
+                    str
+                ):
+                    date_obj = datetime.strptime(
+                        installation_date[:10],
+                        "%Y-%m-%d"
+                    )
+                else:
+                    date_obj = installation_date
+
+                self.entries[
+                    "installation_date"
+                ].set_date(date_obj)
+
+            except Exception:
                 pass
 
-        status = self.equipment.get("status", "operational")
-        status_fa = STATUS_FA.get(status, "عملیاتی")
-        self.entries["status"].set(status_fa)
+        # Status
+        status = self.equipment.get(
+            "status",
+            "operational"
+        )
 
-        for dim in ["length", "width", "diameter", "height", "volume", "weight"]:
-            val = self.equipment.get(dim)
-            if val is not None:
-                self.entries[dim].insert(0, str(val))
+        self.entries["status"].set(
+            STATUS_FA.get(
+                status,
+                "عملیاتی"
+            )
+        )
 
-        if self.equipment.get("specifications"):
-            self.entries["specifications"].insert("1.0", self.equipment["specifications"])
+        # Dimensions
+        for key in [
+            "length",
+            "width",
+            "height",
+            "diameter",
+            "volume",
+            "weight"
+        ]:
 
-        if self.equipment.get("notes"):
-            self.entries["notes"].insert("1.0", self.equipment["notes"])
+            value = self.equipment.get(key)
+
+            if value is not None:
+
+                self.entries[key].insert(
+                    0,
+                    str(value)
+                )
+
+        # Text fields
+        specifications = self.equipment.get(
+            "specifications"
+        )
+
+        if specifications:
+            self.entries[
+                "specifications"
+            ].insert(
+                "1.0",
+                specifications
+            )
+
+        notes = self.equipment.get(
+            "notes"
+        )
+
+        if notes:
+            self.entries[
+                "notes"
+            ].insert(
+                "1.0",
+                notes
+            )
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    def _validate_required(self):
+
+        required = {
+            "code": "کد تجهیز",
+            "name": "نام تجهیز",
+            "category": "دسته‌بندی",
+            "location": "موقعیت",
+            "status": "وضعیت",
+        }
+
+        missing = []
+
+        for key, label in required.items():
+
+            value = self.entries[key].get().strip()
+
+            if not value:
+                missing.append(label)
+
+        if missing:
+
+            # Inline errors: every empty required field gets a red frame and
+            # a short note under it; the first one gets the focus.
+            first = True
+            for key, label in required.items():
+                if not self.entries[key].get().strip():
+                    field_error(self.entries[key], f"{label} الزامی است.", focus=first)
+                    first = False
+
+            return False
+
+        return True
+
+    # ========================================================
+    # SAVE
+    # ========================================================
 
     def _save(self):
+
+        # ----------------------------------------------------
+        # Required fields
+        # ----------------------------------------------------
+
+        if not self._validate_required():
+            return
+
         code = self.entries["code"].get().strip()
         name = self.entries["name"].get().strip()
         category = self.entries["category"].get().strip()
         location = self.entries["location"].get().strip()
-        status_fa = self.entries["status"].get()
+        status_fa = self.entries["status"].get().strip()
 
-        if not all([code, name, category, location, status_fa]):
-            messagebox.showerror("خطا", "لطفاً فیلدهای ضروری را پر کنید.", parent=self)
+        status_en = next(
+            (
+                key
+                for key, value in STATUS_FA.items()
+                if value == status_fa
+            ),
+            None
+        )
+
+        if not status_en:
+
+            messagebox.showerror(
+                "خطا",
+                "وضعیت تجهیز معتبر نیست.",
+                parent=self
+            )
+
             return
 
-        status_en = next((k for k, v in STATUS_FA.items() if v == status_fa), "operational")
+        # ----------------------------------------------------
+        # Installation date
+        # ----------------------------------------------------
 
         try:
-            installation_date = datetime.strptime(
-                self.entries["installation_date"].get_date().strftime("%Y-%m-%d"), "%Y-%m-%d"
+            installation_date = (
+                self.entries[
+                    "installation_date"
+                ].get_date()
             )
-        except:
+        except Exception:
             installation_date = None
 
-        def parse_float(key):
-            s = self.entries[key].get().strip()
-            if s:
-                try:
-                    return float(s)
-                except:
-                    messagebox.showerror("خطا", f"مقدار '{key}' باید عدد باشد.", parent=self)
-                    return None
-            return None
+        # ----------------------------------------------------
+        # Numeric fields
+        # ----------------------------------------------------
 
-        length = parse_float("length")
-        width = parse_float("width")
-        diameter = parse_float("diameter")
-        height = parse_float("height")
-        volume = parse_float("volume")
-        weight = parse_float("weight")
+        numeric_fields = [
+            ("length", "طول"),
+            ("width", "عرض"),
+            ("diameter", "قطر"),
+            ("height", "ارتفاع"),
+            ("volume", "حجم"),
+            ("weight", "وزن"),
+        ]
+
+        numeric_values = {}
+
+        for key, label in numeric_fields:
+
+            raw = self.entries[key].get().strip()
+
+            if not raw:
+                numeric_values[key] = None
+                continue
+
+            try:
+
+                value = float(raw)
+
+                if value < 0:
+                    raise ValueError
+
+                numeric_values[key] = value
+
+            except (ValueError, TypeError):
+
+                field_error(self.entries[key], f"مقدار «{label}» باید یک عدد مثبت باشد.")
+
+                return
+
+        # ----------------------------------------------------
+        # Text
+        # ----------------------------------------------------
+
+        specifications = self.entries[
+            "specifications"
+        ].get(
+            "1.0",
+            "end-1c"
+        ).strip()
+
+        notes = self.entries[
+            "notes"
+        ].get(
+            "1.0",
+            "end-1c"
+        ).strip()
+
+        manufacturer = self.entries[
+            "manufacturer"
+        ].get().strip()
+
+        model = self.entries[
+            "model"
+        ].get().strip()
+
+        serial_number = self.entries[
+            "serial_number"
+        ].get().strip()
+
+        # ----------------------------------------------------
+        # UPDATE
+        # ----------------------------------------------------
 
         if self.equipment:
+
             success, msg = self.equipment_repo.update_equipment(
                 self.equipment["id"],
-                code, name, category,
-                self.entries["manufacturer"].get().strip(),
-                self.entries["model"].get().strip(),
-                self.entries["serial_number"].get().strip(),
-                location, installation_date, status_en,
-                self.entries["specifications"].get("1.0", "end-1c").strip(),
-                self.entries["notes"].get("1.0", "end-1c").strip(),
-                length=length, width=width, diameter=diameter,
-                height=height, volume=volume, weight=weight,
-            )
-        else:
-            success, msg = self.equipment_repo.create_equipment(
-                code, name, category,
-                self.entries["manufacturer"].get().strip(),
-                self.entries["model"].get().strip(),
-                self.entries["serial_number"].get().strip(),
-                location, installation_date, status_en,
-                self.entries["specifications"].get("1.0", "end-1c").strip(),
-                self.entries["notes"].get("1.0", "end-1c").strip(),
-                length=length, width=width, diameter=diameter,
-                height=height, volume=volume, weight=weight,
+                code,
+                name,
+                category,
+                manufacturer,
+                model,
+                serial_number,
+                location,
+                installation_date,
+                status_en,
+                specifications,
+                notes,
+                length=numeric_values["length"],
+                width=numeric_values["width"],
+                diameter=numeric_values["diameter"],
+                height=numeric_values["height"],
+                volume=numeric_values["volume"],
+                weight=numeric_values["weight"],
             )
 
+        # ----------------------------------------------------
+        # CREATE
+        # ----------------------------------------------------
+
+        else:
+
+            success, msg = self.equipment_repo.create_equipment(
+                code,
+                name,
+                category,
+                manufacturer,
+                model,
+                serial_number,
+                location,
+                installation_date,
+                status_en,
+                specifications,
+                notes,
+                length=numeric_values["length"],
+                width=numeric_values["width"],
+                diameter=numeric_values["diameter"],
+                height=numeric_values["height"],
+                volume=numeric_values["volume"],
+                weight=numeric_values["weight"],
+            )
+
+        # ----------------------------------------------------
+        # RESULT
+        # ----------------------------------------------------
+
         if success:
+
             self.result = True
             self.destroy()
+
         else:
-            messagebox.showerror("خطا", msg, parent=self)
+
+            messagebox.showerror(
+                "خطا",
+                msg,
+                parent=self
+            )
+
+    # ========================================================
+    # CLEANUP
+    # ========================================================
+
+    def destroy(self):
+
+        # FIX: the previous version called self.canvas.unbind_all("<MouseWheel>")
+        # which removed mouse-wheel bindings across the entire application,
+        # breaking scrolling in other views/dialogs. Removed.
+
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+
+        super().destroy()

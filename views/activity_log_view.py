@@ -1,13 +1,15 @@
 # views/activity_log_view.py
 import tkinter as tk
+from views.ui_kit import rtl_columns  # RTL (right-to-left) table columns
 from tkinter import ttk, messagebox
 from database.activity_log_repository import ActivityLogRepository
 from database.db import SessionLocal
 from utils.theme import (
-    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
-    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
-    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+    NAVY, WHITE, GRAY_BG, GRAY_BORDER, TEXT_DARK, FONT_TITLE,
+    FONT_NORMAL
 )
+# Import Jalali date helper
+from utils.date_helpers import to_jalali_datetime_str
 
 CARD_BG = WHITE
 CARD_BORDER = GRAY_BORDER
@@ -16,8 +18,10 @@ SECTION_BG = GRAY_BG
 class ActivityLogView(tk.Frame):
     def __init__(self, parent, current_user):
         super().__init__(parent, bg=SECTION_BG)
-        if current_user["role"] != "admin":
-            messagebox.showerror("خطا", "دسترسی غیرمجاز. فقط مدیر سیستم می‌تواند لاگ فعالیت را مشاهده کند.", parent=parent)
+        # built-in: admin only; custom roles: «مدیریت نقش‌ها» (read-only page)
+        from auth.auth_manager import AuthManager
+        if not AuthManager.allows(("admin",), "activity_log", "read"):
+            messagebox.showerror("خطا", "دسترسی غیرمجاز. شما مجاز به مشاهده لاگ فعالیت نیستید.", parent=parent)
             self.destroy()
             return
         self.current_user = current_user
@@ -48,7 +52,7 @@ class ActivityLogView(tk.Frame):
         tk.Label(filter_frame, text="نوع موجودیت:", bg=CARD_BG, font=FONT_NORMAL).pack(side="right", padx=(15,5))
         self.entity_filter = tk.StringVar(value="همه")
         entity_combo = ttk.Combobox(filter_frame, textvariable=self.entity_filter,
-                                    values=["همه", "work_order", "equipment", "pm_schedule", "user", "spare_part", "inspection"],
+                                    values=["همه", "work_order", "equipment", "pm_schedule", "user", "spare_part", "inspection", "role"],
                                     state="readonly", width=18, font=FONT_NORMAL)
         entity_combo.pack(side="right", padx=5)
         entity_combo.bind("<<ComboboxSelected>>", lambda e: self._load_logs())
@@ -65,6 +69,7 @@ class ActivityLogView(tk.Frame):
 
         cols = ("time", "user", "action", "entity", "entity_id", "details")
         self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=20)
+        rtl_columns(self.tree)  # RTL column order
         self.tree.heading("time", text="زمان")
         self.tree.heading("user", text="کاربر")
         self.tree.heading("action", text="عملیات")
@@ -110,11 +115,20 @@ class ActivityLogView(tk.Frame):
         if user:
             logs = [log for log in logs if log.username == user]
         for log in logs:
+            # Convert created_at to Jalali
+            time_str = to_jalali_datetime_str(log.created_at)
             self.tree.insert("", "end", values=(
-                log.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                time_str,
                 log.username,
                 log.action,
                 log.entity_type,
                 log.entity_id or "-",
                 (log.details or "")[:80]
             ))
+
+    def ux_footer_spec(self):
+        """Filters shown as removable chips under the table (views/ux.py)."""
+        return {"filters": [("کاربر", self.user_filter, "همه"),
+                            ("نوع موجودیت", self.entity_filter, "همه")],
+                "apply": self._load_logs, "noun": "رویداد"}
+

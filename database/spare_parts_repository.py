@@ -1,8 +1,8 @@
 # database/spare_parts_repository.py
 from sqlalchemy import func
-from datetime import datetime
 from typing import List, Optional, Dict, Any
 from database.models import SparePart, SparePartTransaction
+from utils.date_helpers import tehran_now  # Iranian (Asia/Tehran) clock
 
 
 class SparePartsRepository:
@@ -70,7 +70,7 @@ class SparePartsRepository:
                     elif key == 'unit_price':
                         value = float(value) if value else 0.0
                     setattr(part, key, value)
-            part.updated_at = datetime.utcnow()
+            part.updated_at = tehran_now()
             session.commit()
             session.refresh(part)
             return part
@@ -125,14 +125,24 @@ class SparePartsRepository:
                 SparePart.current_stock <= SparePart.min_stock
             ).count()
             total_value = 0.0
-            parts = session.query(SparePart).all()
-            for part in parts:
-                avg_price = session.query(func.avg(SparePartTransaction.batch_price)).filter(
-                    SparePartTransaction.part_id == part.id,
-                    SparePartTransaction.transaction_type == 'IN'
-                ).scalar()
+            # Weighted average purchase price per part:
+            #   sum(quantity * batch_price) / sum(quantity) over IN transactions
+            avg_prices = {}
+            rows = session.query(
+                SparePartTransaction.part_id,
+                func.sum(SparePartTransaction.quantity * SparePartTransaction.batch_price),
+                func.sum(SparePartTransaction.quantity),
+            ).filter(
+                SparePartTransaction.transaction_type == 'IN',
+                SparePartTransaction.batch_price.isnot(None),
+            ).group_by(SparePartTransaction.part_id).all()
+            for part_id, total_cost, total_qty in rows:
+                if total_qty:
+                    avg_prices[part_id] = float(total_cost or 0) / float(total_qty)
+            for part_id, stock in session.query(SparePart.id, SparePart.current_stock).all():
+                avg_price = avg_prices.get(part_id)
                 if avg_price is not None:
-                    total_value += part.current_stock * float(avg_price)
+                    total_value += (stock or 0) * float(avg_price)
             return {
                 'total_parts': total_parts,
                 'low_stock_count': low_stock_count,

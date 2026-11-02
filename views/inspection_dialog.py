@@ -2,7 +2,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Optional, List
-from datetime import datetime
 
 from database.models import Equipment
 from services.inspection_service import InspectionService
@@ -15,9 +14,9 @@ from schemas.inspection import (
 )
 
 from utils.theme import (
-    NAVY, NAVY_LIGHT, WHITE, RED, GRAY_BG, GRAY_BORDER,
-    TEXT_DARK, TEXT_LIGHT, SUCCESS, WARNING,
-    FONT_TITLE, FONT_HEADING, FONT_NORMAL, FONT_SMALL
+    NAVY, WHITE, RED, GRAY_BG, GRAY_BORDER, TEXT_DARK,
+    TEXT_LIGHT, SUCCESS, WARNING, FONT_TITLE,
+    FONT_HEADING, FONT_NORMAL, FONT_SMALL
 )
 
 BG      = GRAY_BG
@@ -157,7 +156,7 @@ class TemplateDialog(tk.Toplevel):
                   padx=10, pady=5, command=self._delete_checkpoint).pack(side="right", padx=(0, 5))
 
         cols = ("order", "title", "type", "description")
-        self.cp_tree = ttk.Treeview(cp_frame, columns=cols, show="headings", height=7)
+        self.cp_tree = ttk.Treeview(cp_frame, columns=cols, show="headings", height=4)
         self.cp_tree.heading("order",       text="ترتیب")
         self.cp_tree.heading("title",       text="عنوان")
         self.cp_tree.heading("type",        text="نوع")
@@ -176,7 +175,8 @@ class TemplateDialog(tk.Toplevel):
 
         # Buttons
         btn_frame = tk.Frame(self, bg=BG)
-        btn_frame.pack(fill="x", padx=20, pady=(5, 15))
+        # packed before the form so it stays visible on small screens
+        btn_frame.pack(side="bottom", fill="x", padx=20, pady=(5, 15), before=info_frame)
         tk.Button(btn_frame, text="ذخیره", font=FONT_NORMAL,
                   bg=SUCCESS, fg=WHITE, relief="flat", cursor="hand2",
                   padx=20, pady=8, command=self._save).pack(side="right", padx=(5, 0))
@@ -682,9 +682,7 @@ class InspectionExecuteDialog(tk.Toplevel):
     def _save_progress(self):
         try:
             results = self._collect_results()
-            for r in results:
-                self.service.save_results(self.inspection_id, [r])
-            self.db.commit()
+            self.service.save_progress(self.inspection_id, results)
             messagebox.showinfo("موفق", "پیشرفت ذخیره شد.", parent=self)
         except Exception as e:
             self.db.rollback()
@@ -705,7 +703,7 @@ class InspectionExecuteDialog(tk.Toplevel):
         try:
             results = self._collect_results()
             inspection = self.service.save_results(self.inspection_id, results)
-            result_fa  = RESULT_FA.get(inspection.overall_result, inspection.overall_result)
+            result_fa  = RESULT_FA.get(inspection.overall_result or "", inspection.overall_result or "بدون نتیجه (همه موارد غیرقابل اجرا)")
             messagebox.showinfo(
                 "بازرسی تکمیل شد",
                 f"بازرسی با موفقیت ثبت شد.\nنتیجه کلی: {result_fa}",
@@ -777,7 +775,14 @@ class InspectionDetailDialog(tk.Toplevel):
         tk.Label(hdr,
                  text=f"تجهیز: {eq_name}  |  بازرس: {ins.inspector.full_name}",
                  font=FONT_SMALL, bg=hdr_color, fg=WHITE).pack(anchor="e", padx=20)
-        result_text = RESULT_FA.get(result, result)
+        if ins.overall_result:
+            result_text = RESULT_FA.get(result, result)
+        elif ins.status == "completed":
+            result_text = "بدون نتیجه"
+        elif ins.status == "cancelled":
+            result_text = "لغو شده"
+        else:
+            result_text = "در حال انجام"
         tk.Label(hdr, text=f"نتیجه کلی: {result_text}",
                  font=FONT_NORMAL, bg=hdr_color, fg=WHITE).pack(anchor="e", padx=20)
 

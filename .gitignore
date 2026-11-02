@@ -1,53 +1,30 @@
-# Python
 __pycache__/
-*.py[cod]
-*.so
-.Python
-venv/
-env/
-ENV/
-.venv
-
-# PyInstaller
+*.pyc
 build/
 dist/
-*.spec
-*.toc
-*.pyz
-*.pkg
-base_library.zip
+installer_output/
+release_logs/
+updater_account.local
 
-# Database (SQLite) – do not commit runtime DB files
-*.db
-*.db-shm
-*.db-wal
-
-# Logs
-*.log
-dairy_pm.log
-
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# Installer outputs
-*.exe
-PM_System_Setup.exe
-pm.iss  # unless you want to keep the script – uncomment next line if you keep it
-# pm.iss
-
-# Environment & secrets
+# Private settings - never commit
+database/db_secrets.py
+updater_account.local
 .env
-.env.txt
 
-# Temporary / generated files
-logo_resized.png
-logo_base64.txt
-structure_checker.py  # if it's just a helper
-db_editor.py
-requirements.py       # if not used
+# Local data / databases / logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.bak
 
-# OS junk
-Thumbs.db
-.DS_Store
+# Editors and environments
+.idea/
+.vscode/
+venv/
+.venv/
+*.code-workspace
+
+# Packed copies
+*.zip
+*.rar
